@@ -7,7 +7,12 @@ import random
 from datetime import datetime, UTC
 import pytz
 
-#TOKEN = ""
+import os
+
+# Load Discord bot token securely from environment variable
+TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+if not TOKEN:
+    raise RuntimeError("DISCORD_BOT_TOKEN environment variable not set.")
 JSON_FILE = "cortex_members.json"
 TAGS_FILE = "tags.json"
 
