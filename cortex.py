@@ -1,12 +1,14 @@
+
+
+# Required imports
+import os
+import json
+import random
+from datetime import datetime, timezone, timedelta
 import discord
 from discord import app_commands
 from discord.ext import commands
-import json
-import os
 from dotenv import load_dotenv
-import random
-from datetime import datetime, timedelta, timezone, UTC
-import pytz
 
 # Load Discord bot token securely from environment variable
 load_dotenv()
@@ -333,7 +335,7 @@ async def addmember(
         "yt_playlist": yt_playlist,
         "tags": tags_list,
         "color": color_hex,
-        "created_at": datetime.now(UTC).isoformat(),  # track creation date
+        "created_at": datetime.now(timezone.utc).isoformat(),  # track creation date
         "fronting": False,
         "cofronting": [],
         "fronting_since": None,
@@ -728,7 +730,7 @@ async def memberhistory(interaction: discord.Interaction, name: str):
 
         # Duration
         start_dt = datetime.fromisoformat(start_iso)
-        end_dt = datetime.fromisoformat(end_iso) if end_iso else datetime.now(UTC)
+        end_dt = datetime.fromisoformat(end_iso) if end_iso else datetime.now(timezone.utc)
         total_sec = int((end_dt - start_dt).total_seconds())
         hours, remainder = divmod(total_sec, 3600)
         minutes, seconds = divmod(remainder, 60)

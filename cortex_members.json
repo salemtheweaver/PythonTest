@@ -1,0 +1,21 @@
+{
+    "1": {
+        "id": "1",
+        "name": "Salem",
+        "pronouns": "He/him",
+        "birthday": null,
+        "description": null,
+        "profile_pic": null,
+        "banner": null,
+        "yt_playlist": null,
+        "tags": [
+            "host"
+        ],
+        "color": "8136e9",
+        "created_at": "2026-03-16T20:00:47.854374+00:00",
+        "fronting": false,
+        "cofronting": [],
+        "fronting_since": null,
+        "front_history": []
+    }
+}
