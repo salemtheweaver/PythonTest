@@ -3,13 +3,13 @@ from discord import app_commands
 from discord.ext import commands
 import json
 import os
+from dotenv import load_dotenv
 import random
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, timezone, UTC
 import pytz
 
-import os
-
 # Load Discord bot token securely from environment variable
+load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN environment variable not set.")
@@ -156,7 +156,13 @@ class TagMultiView(discord.ui.View):
 # -----------------------------
 # Fronting helpers (unified)
 # -----------------------------
-from datetime import datetime, timezone
+def format_us(iso_string):
+    """Format an ISO datetime string to US-friendly format."""
+    try:
+        dt = datetime.fromisoformat(iso_string)
+        return dt.strftime("%m/%d/%Y %I:%M %p")
+    except Exception:
+        return iso_string
 
 def start_front(member_id, cofronts=None):
     """Start fronting for a member with optional co-fronts."""
@@ -196,26 +202,10 @@ def end_front(member_id):
     # Reset current front
     member["current_front"] = None
 
-def calculate_front_duration(member):
-    """Returns total front duration in seconds, including current front if active."""
-    total_seconds = 0
-    for entry in member.get("front_history", []):
-        start_dt = datetime.fromisoformat(entry["start"])
-        end_iso = entry.get("end")
-        end_dt = datetime.fromisoformat(end_iso) if end_iso else datetime.now(timezone.utc)
-        total_seconds += (end_dt - start_dt).total_seconds()
-    return total_seconds
-
-def format_duration(seconds):
-    """Format seconds as Hh Mm Ss"""
-    seconds = int(seconds)
-    hours, remainder = divmod(seconds, 3600)
-    minutes, secs = divmod(remainder, 60)
-    return f"{hours}h {minutes}m {secs}s" if hours else f"{minutes}m {secs}s"
 # -----------------------------
 # Front duration helpers (unified)
 # -----------------------------
-from datetime import timedelta, timezone, datetime
+
 
 def calculate_front_duration(member):
     """Returns total front duration in seconds, including current front if active, including co-fronts."""
@@ -281,6 +271,7 @@ class CoFrontView(discord.ui.View):
 # Add member
 # -----------------------------
 @tree.command(name="addmember", description="Add a member")
+@app_commands.default_permissions(administrator=True)
 async def addmember(
     interaction: discord.Interaction,
     name: str,
@@ -315,13 +306,12 @@ async def addmember(
     # Generate next incremental member ID
     if members:
         numeric_ids = []
-for m in members.values():
-    try:
-        numeric_ids.append(int(m["id"]))
-    except:
-        continue
-
-member_id = str(max(numeric_ids, default=0) + 1)
+        for m in members.values():
+            try:
+                numeric_ids.append(int(m["id"]))
+            except:
+                continue
+        member_id = str(max(numeric_ids, default=0) + 1)
     else:
         member_id = "1"
 
@@ -348,7 +338,7 @@ member_id = str(max(numeric_ids, default=0) + 1)
     save_members()
 
     # Confirm addition to user
-    await interaction.response.send_message(f"Member **{name}** added.\nID `{member_id}`", ephemeral=True)
+    await interaction.followup.send(f"Member **{name}** added.\nID `{member_id}`", ephemeral=True)
 
 # -----------------------------
 # Switch member
@@ -841,7 +831,7 @@ async def editmemberimages(
         member["banner"] = banner.url
 
     save_members()
-    await interaction.response.send_message(f"Updated profile/banner for **{member['name']}**.", ephemeral=True)
+    await interaction.response.send_message(f"Updated profile/banner for **{member['name']}**.")
 
 # -----------------------------
 # List all members
@@ -1050,6 +1040,7 @@ class ConfirmRemove(discord.ui.View):
         await interaction.response.edit_message(content="Action cancelled.", view=None)
 
 @tree.command(name="removemember", description="Remove a member from the system")
+@app_commands.default_permissions(administrator=True)
 @app_commands.autocomplete(member_id=member_id_autocomplete)
 async def removemember(interaction: discord.Interaction, member_id: str):
     if member_id not in members:
@@ -1170,10 +1161,39 @@ async def clearall(interaction: discord.Interaction):
 # -----------------------------
 # Sync
 # -----------------------------
+# -----------------------------
+# Refresh databases
+# -----------------------------
+@tree.command(name="refresh", description="Reload all databases from disk")
+@app_commands.default_permissions(administrator=True)
+async def refresh(interaction: discord.Interaction):
+    global members, PRESET_TAGS
+
+    if os.path.exists(JSON_FILE):
+        with open(JSON_FILE, "r") as f:
+            members.clear()
+            members.update(json.load(f))
+    else:
+        members.clear()
+
+    if os.path.exists(TAGS_FILE):
+        with open(TAGS_FILE, "r") as f:
+            PRESET_TAGS.clear()
+            PRESET_TAGS.extend(json.load(f))
+    else:
+        PRESET_TAGS.clear()
+
+    await interaction.response.send_message(
+        f"Databases refreshed. Loaded **{len(members)}** members and **{len(PRESET_TAGS)}** tags."
+    )
+
+# -----------------------------
+# Sync
+# -----------------------------
 @tree.command(name="synccommands", description="Force sync all commands globally")
 async def synccommands(interaction: discord.Interaction):
     await tree.sync()
-    await interaction.response.send_message("All commands synced globally!", ephemeral=True)
+    await interaction.response.send_message("All commands synced globally!")
 # -----------------------------
 # Bot ready
 # -----------------------------
