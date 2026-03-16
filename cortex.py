@@ -66,13 +66,16 @@ def get_next_member_id():
 # Autocomplete functions
 # -----------------------------
 async def member_name_autocomplete(interaction: discord.Interaction, current: str):
-    options = []
-    for m in members.values():
-        if current.lower() in m["name"].lower():
-            options.append(app_commands.Choice(name=f"{m['name']} ({m['id']})", value=m["name"]))
-        if len(options) >= 25:
-            break
-    return options
+    try:
+        options = []
+        for m in members.values():
+            if current.lower() in m["name"].lower():
+                options.append(app_commands.Choice(name=f"{m['name']} ({m['id']})", value=m["name"]))
+            if len(options) >= 25:
+                break
+        return options
+    except Exception:
+        return []
 
 async def member_id_autocomplete(interaction: discord.Interaction, current: str):
     options = []
@@ -84,13 +87,16 @@ async def member_id_autocomplete(interaction: discord.Interaction, current: str)
     return options
 
 async def tag_autocomplete(interaction: discord.Interaction, current: str):
-    options = []
-    for tag in PRESET_TAGS:
-        if current.lower() in tag.lower():
-            options.append(app_commands.Choice(name=tag, value=tag))
-        if len(options) >= 25:
-            break
-    return options
+    try:
+        options = []
+        for tag in PRESET_TAGS:
+            if current.lower() in tag.lower():
+                options.append(app_commands.Choice(name=tag, value=tag))
+            if len(options) >= 25:
+                break
+        return options
+    except Exception:
+        return []
 
 # -----------------------------
 # Tag selection views
@@ -98,7 +104,7 @@ async def tag_autocomplete(interaction: discord.Interaction, current: str):
 class TagSelect(discord.ui.Select):
     def __init__(self, preselected=None):
         options = [
-            discord.SelectOption(label=tag, value=tag, default=(preselected and tag in preselected))
+            discord.SelectOption(label=tag, value=tag, default=(tag in preselected if preselected else False))
             for tag in PRESET_TAGS
         ]
         super().__init__(
@@ -343,6 +349,34 @@ async def addmember(
 # -----------------------------
 # Switch member
 # -----------------------------
+@tree.command(name="messageto", description="Send a message to a member that shows when they switch in")
+@app_commands.autocomplete(member_id=member_id_autocomplete)
+async def messageto(interaction: discord.Interaction, member_id: str, message: str):
+    if member_id not in members:
+        await interaction.response.send_message("Member not found.", ephemeral=True)
+        return
+
+    # Find who is currently fronting to use as sender
+    sender_names = [m["name"] for m in members.values() if m.get("current_front")]
+    sender = ", ".join(sender_names) if sender_names else "Unknown"
+
+    # Add message to the member's inbox
+    members[member_id].setdefault("inbox", [])
+    members[member_id]["inbox"].append({
+        "from": sender,
+        "text": message,
+        "sent_at": datetime.now(timezone.utc).isoformat()
+    })
+    save_members()
+
+    await interaction.response.send_message(
+        f"Message sent to **{members[member_id]['name']}**.",
+        ephemeral=True
+    )
+
+# -----------------------------
+# Switch member
+# -----------------------------
 @tree.command(name="switchmember", description="Log a member as fronting")
 @app_commands.autocomplete(member_id=member_id_autocomplete)
 async def switchmember(interaction: discord.Interaction, member_id: str):
@@ -350,16 +384,28 @@ async def switchmember(interaction: discord.Interaction, member_id: str):
         await interaction.response.send_message("Member not found.", ephemeral=True)
         return
 
-    # End any currently fronting members
+    # End all currently fronting members first
     for m in members.values():
-        if m.get("fronting"):
+        if m.get("current_front"):
             end_front(m["id"])
 
     # Start fronting the selected member
     start_front(member_id)
-    save_members()
 
-    await interaction.response.send_message(f"Member **{members[member_id]['name']}** is now fronting.")
+    # Build response
+    new_name = members[member_id]["name"]
+    response = f"Member **{new_name}** is now fronting."
+
+    # Show and clear any pending inbox messages
+    inbox = members[member_id].get("inbox", [])
+    if inbox:
+        response += f"\n\n📨 **You have {len(inbox)} message(s):**"
+        for msg in inbox:
+            response += f"\n> **From {msg['from']}:** {msg['text']}"
+        members[member_id]["inbox"] = []
+
+    save_members()
+    await interaction.response.send_message(response)
 
 # -----------------------------
 # Co-front member
@@ -535,6 +581,7 @@ async def frontstats(interaction: discord.Interaction):
 
     # Sort by total front time
     stats.sort(key=lambda x: x[1], reverse=True)
+    grand_total = sum(s for _, s in stats)
 
     page_size = 10
     total_pages = (len(stats) - 1) // page_size + 1
@@ -545,10 +592,10 @@ async def frontstats(interaction: discord.Interaction):
         end = start + page_size
         chunk = stats[start:end]
 
-        lines = [
-            f"**{name}** — {format_duration(seconds)}"
-            for name, seconds in chunk
-        ]
+        lines = []
+        for name, seconds in chunk:
+            pct = (seconds / grand_total * 100) if grand_total > 0 else 0
+            lines.append(f"**{name}** — {format_duration(seconds)} ({pct:.1f}%)")
 
         embed = discord.Embed(
             title="Front Duration Statistics",
@@ -726,16 +773,6 @@ async def viewmember(interaction: discord.Interaction, name: str):
     # Build the description
     desc = member.get("description", "No description.")
 
-    # Add creation date below banner in gray italics if it exists
-    created_iso = member.get("created_at")
-    if created_iso:
-        try:
-            created_dt = datetime.fromisoformat(created_iso)
-            created_formatted = created_dt.strftime("%B %d, %Y")
-            desc += f"\n\n*Created At: {created_formatted}*"
-        except Exception:
-            pass  # ignore if formatting fails
-
     embed = discord.Embed(
         title=member["name"],
         description=desc,
@@ -744,9 +781,6 @@ async def viewmember(interaction: discord.Interaction, name: str):
 
     if member.get("profile_pic"):
         embed.set_thumbnail(url=member["profile_pic"])
-
-    if member.get("banner"):
-        embed.set_image(url=member["banner"])
 
     embed.add_field(name="ID", value=member["id"], inline=True)
     embed.add_field(name="Pronouns", value=member.get("pronouns", "Unknown"), inline=True)
@@ -760,6 +794,19 @@ async def viewmember(interaction: discord.Interaction, name: str):
 
     fronting = "Yes" if member.get("fronting") else "No"
     embed.add_field(name="Currently Fronting", value=fronting, inline=False)
+
+    if member.get("banner"):
+        embed.set_image(url=member["banner"])
+
+    # Show creation date under the banner in the footer
+    created_iso = member.get("created_at")
+    if created_iso:
+        try:
+            created_dt = datetime.fromisoformat(created_iso)
+            created_formatted = created_dt.strftime("%B %d, %Y")
+            embed.set_footer(text=f"Created At: {created_formatted}")
+        except Exception:
+            pass
 
     await interaction.response.send_message(embed=embed)
 # -----------------------------
@@ -777,7 +824,8 @@ async def editmember(
     yt_playlist: str = None,
     color: str = None,
     profile_pic: discord.Attachment = None,
-    banner: discord.Attachment = None
+    banner: discord.Attachment = None,
+    edit_tags: bool = False
 ):
     if member_id not in members:
         await interaction.response.send_message("Member not found.", ephemeral=True)
@@ -806,8 +854,20 @@ async def editmember(
     if banner:
         member["banner"] = banner.url
 
-    save_members()
-    await interaction.response.send_message(f"Member **{member['name']}** updated.")
+    if edit_tags:
+        view = TagView(preselected=member.get("tags", []))
+        await interaction.response.send_message("Select tags then press Confirm.", view=view)
+        timed_out = await view.wait()
+        if not timed_out:
+            member["tags"] = view.selected_tags
+            save_members()
+            await interaction.followup.send(f"Member **{member['name']}** updated.")
+        else:
+            await interaction.followup.send("Tag selection timed out. Other changes were still saved.")
+            save_members()
+    else:
+        save_members()
+        await interaction.response.send_message(f"Member **{member['name']}** updated.")
 # -----------------------------
 # Edit member images
 # -----------------------------
@@ -891,37 +951,62 @@ async def members_list(interaction: discord.Interaction):
 # -----------------------------
 # Search Members
 # -----------------------------
-@tree.command(name="searchmember", description="Search for a member by name")
-@app_commands.autocomplete(name=member_name_autocomplete)
-async def searchmember(interaction: discord.Interaction, name: str):
-    member = next((m for m in members.values() if m["name"].lower() == name.lower()), None)
-    if not member:
-        await interaction.response.send_message("Member not found.", ephemeral=True)
+@tree.command(name="searchmember", description="Search for a member by name or tag")
+@app_commands.autocomplete(name=member_name_autocomplete, tag=tag_autocomplete)
+async def searchmember(interaction: discord.Interaction, name: str = None, tag: str = None):
+    if not name and not tag:
+        await interaction.response.send_message("Provide a name or tag to search.", ephemeral=True)
         return
 
-    fronting = "Yes" if member.get("current_front") else "No"
-    duration = format_duration(calculate_front_duration(member))
-    co_fronts = ", ".join(member.get("co_fronts", [])) if member.get("co_fronts") else "None"
+    results = list(members.values())
 
-    embed = discord.Embed(
-        title=member["name"],
-        description=member.get("description", "No description."),
-        color=int(member.get("color", "FFFFFF"), 16)
-    )
+    if name:
+        results = [m for m in results if name.lower() in m["name"].lower()]
 
-    embed.add_field(name="Currently Fronting", value=fronting, inline=True)
-    embed.add_field(name="Co-fronts", value=co_fronts, inline=True)
-    embed.add_field(name="Total Front Time", value=duration, inline=False)
+    if tag:
+        results = [m for m in results if tag.lower() in [t.lower() for t in m.get("tags", [])]]
 
-    tags = ", ".join(member.get("tags", [])) if member.get("tags") else "None"
-    embed.add_field(name="Tags", value=tags, inline=False)
+    if not results:
+        await interaction.response.send_message("No members found.", ephemeral=True)
+        return
 
-    if member.get("profile_pic"):
-        embed.set_thumbnail(url=member["profile_pic"])
-    if member.get("banner"):
-        embed.set_image(url=member.get("banner"))
+    if len(results) == 1:
+        member = results[0]
+        fronting = "Yes" if member.get("current_front") else "No"
+        duration = format_duration(calculate_front_duration(member))
+        co_fronts = ", ".join(member.get("co_fronts", [])) if member.get("co_fronts") else "None"
 
-    await interaction.response.send_message(embed=embed)
+        embed = discord.Embed(
+            title=member["name"],
+            description=member.get("description", "No description."),
+            color=int(member.get("color", "FFFFFF"), 16)
+        )
+
+        embed.add_field(name="Currently Fronting", value=fronting, inline=True)
+        embed.add_field(name="Co-fronts", value=co_fronts, inline=True)
+        embed.add_field(name="Total Front Time", value=duration, inline=False)
+
+        tags = ", ".join(member.get("tags", [])) if member.get("tags") else "None"
+        embed.add_field(name="Tags", value=tags, inline=False)
+
+        if member.get("profile_pic"):
+            embed.set_thumbnail(url=member["profile_pic"])
+        if member.get("banner"):
+            embed.set_image(url=member.get("banner"))
+
+        await interaction.response.send_message(embed=embed)
+    else:
+        lines = []
+        for m in results:
+            member_tags = ", ".join(m.get("tags", [])) or "None"
+            lines.append(f"**{m['name']}** — ID `{m['id']}` — Tags: {member_tags}")
+
+        embed = discord.Embed(
+            title=f"Search Results ({len(results)} found)",
+            description="\n".join(lines),
+            color=discord.Color.blue()
+        )
+        await interaction.response.send_message(embed=embed)
 
 # -----------------------------
 # Tag management
@@ -1191,9 +1276,11 @@ async def refresh(interaction: discord.Interaction):
 # Sync
 # -----------------------------
 @tree.command(name="synccommands", description="Force sync all commands globally")
+@app_commands.default_permissions(administrator=True)
 async def synccommands(interaction: discord.Interaction):
+    await interaction.response.defer()
     await tree.sync()
-    await interaction.response.send_message("All commands synced globally!")
+    await interaction.followup.send("All commands synced globally!")
 # -----------------------------
 # Bot ready
 # -----------------------------
