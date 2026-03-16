@@ -7,7 +7,7 @@ import random
 from datetime import datetime, UTC
 import pytz
 
-TOKEN = ""
+#TOKEN = ""
 JSON_FILE = "cortex_members.json"
 TAGS_FILE = "tags.json"
 
