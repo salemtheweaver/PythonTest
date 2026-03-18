@@ -1649,15 +1649,17 @@ def can_view_member_data(system, member, viewer_user_id):
 def resolve_target_system_for_view(requester_user_id, target_user_id_raw=None):
     if target_user_id_raw is None:
         target_user_id = str(requester_user_id)
+        system_id = get_user_system_id(target_user_id)
+        if not system_id:
+            return None, None, None, "You do not have a registered system. Use /register."
     else:
         parsed = parse_discord_user_id(target_user_id_raw)
         if not parsed:
             return None, None, None, "Invalid target user ID. Use a numeric Discord ID or mention."
         target_user_id = parsed
-
-    system_id = get_user_system_id(target_user_id)
-    if not system_id:
-        return None, None, None, "Target user does not have a registered system."
+        system_id = get_user_system_id(target_user_id)
+        if not system_id:
+            return None, None, None, "Target user does not have a registered system."
 
     system = systems_data.get("systems", {}).get(system_id)
     if not system:
@@ -2934,10 +2936,22 @@ def get_next_member_id():
 # -----------------------------
 async def member_name_autocomplete(interaction: discord.Interaction, current: str):
     try:
+        user_id = interaction.user.id
+        system_id = get_user_system_id(user_id)
+        if not system_id:
+            return []
+
+        subsystem_id = interaction.namespace.subsystem_id if hasattr(interaction.namespace, "subsystem_id") else None
+        members_dict = get_system_members(system_id, subsystem_id)
+        if not members_dict:
+            return []
+
         options = []
-        for m in members.values():
-            if current.lower() in m["name"].lower():
-                options.append(app_commands.Choice(name=f"{m['name']} ({m['id']})", value=m["name"]))
+        query = (current or "").lower()
+        for member_id, member_data in members_dict.items():
+            member_name = member_data.get("name", "")
+            if query in member_name.lower() or query in str(member_id).lower():
+                options.append(app_commands.Choice(name=f"{member_name} ({member_id})", value=member_name))
             if len(options) >= 25:
                 break
         return options
