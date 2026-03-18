@@ -4372,19 +4372,18 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
 # Co-front member
 # -----------------------------
 @tree.command(name="cofrontmember", description="Select co-fronting members interactively in a subsystem")
+@app_commands.describe(member="Member name or ID", subsystem_id="Subsystem to search (leave blank to search entire system)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
-async def cofrontmember(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
+async def cofrontmember(interaction: discord.Interaction, member: str, subsystem_id: str = None):
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
-    members = get_system_members(system_id, subsystem_id)
-    if members is None:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
-        return
+    system = systems_data.get("systems", {}).get(system_id, {})
 
-    resolved_member_id, resolved_member, resolve_error = resolve_member_identifier(members, member_id)
+    target_scope_id, members, resolved_member_id, resolved_member, resolve_error = \
+        resolve_member_identifier_in_system(system, member, subsystem_id=subsystem_id)
     if resolve_error:
         await interaction.response.send_message(resolve_error, ephemeral=True)
         return
@@ -4392,7 +4391,7 @@ async def cofrontmember(interaction: discord.Interaction, member_id: str, subsys
     view = CoFrontView(members, resolved_member_id)
     await interaction.response.send_message(
         (
-            f"Select co-front members for **{resolved_member.get('name', resolved_member_id)}** in {get_scope_label(subsystem_id)} then click Confirm. "
+            f"Select co-front members for **{resolved_member.get('name', resolved_member_id)}** in {get_scope_label(target_scope_id)} then click Confirm. "
             f"Page 1/{view.total_pages}. Selected: 0"
         ),
         view=view,
@@ -4416,7 +4415,7 @@ async def cofrontmember(interaction: discord.Interaction, member_id: str, subsys
 
     co_names = ", ".join([members[c]["name"] for c in selected_cofronts]) if selected_cofronts else "None"
     await interaction.followup.send(
-        f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting with co-fronts: {co_names} in {get_scope_label(subsystem_id)}.",
+        f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting with co-fronts: {co_names} in {get_scope_label(target_scope_id)}.",
         ephemeral=True
     )
 
