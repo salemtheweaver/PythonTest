@@ -21,8 +21,20 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN environment variable not set.")
 ADMIN_USER_ID = os.getenv("CORTEX_ADMIN_USER_ID")
-JSON_FILE = "cortex_members.json"
-TAGS_FILE = "tags.json"
+
+# Use /data/ volume on Railway for persistent storage, fallback to local directory
+DATA_DIR = "/data" if os.path.exists("/data") else "."
+JSON_FILE = os.path.join(DATA_DIR, "cortex_members.json")
+TAGS_FILE = os.path.join(DATA_DIR, "tags.json")
+
+# Copy existing local files to volume if they don't exist there yet
+if DATA_DIR == "/data":
+    for _fname in ["cortex_members.json", "tags.json"]:
+        _vol_path = os.path.join("/data", _fname)
+        _local_path = os.path.join(".", _fname)
+        if not os.path.exists(_vol_path) and os.path.exists(_local_path):
+            import shutil
+            shutil.copy2(_local_path, _vol_path)
 
 intents = discord.Intents.default()
 intents.message_content = True
