@@ -19,7 +19,7 @@
             "checkins": {
                 "entries": [],
                 "weekly_dm_enabled": true,
-                "last_weekly_summary_week": null
+                "last_weekly_summary_week": "2026-W12"
             },
             "front_reminders": {
                 "enabled": false,
