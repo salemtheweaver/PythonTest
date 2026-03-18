@@ -7043,8 +7043,9 @@ async def before_weekly_mood_summary_loop():
 async def on_ready():
     print(f"Logged in as {bot.user}")
 
-    global_synced = await tree.sync()
-    print(f"Synced {len(global_synced)} global commands")
+    # Commands are already registered globally — only sync manually via /synccommands
+    # Syncing on every restart can trigger Cloudflare rate limits (error 1015)
+    print("Skipping automatic command sync (use /synccommands to sync manually)")
 
     if not front_reminder_loop.is_running():
         front_reminder_loop.start()
@@ -7053,7 +7054,7 @@ async def on_ready():
     if not scheduled_messages_loop.is_running():
         scheduled_messages_loop.start()
 
-    print("Commands synced!")
+    print("Bot is ready!")
 
 
 # -----------------------------
