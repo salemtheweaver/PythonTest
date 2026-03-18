@@ -5,6 +5,7 @@ import os
 import json
 import random
 import asyncio
+import base64
 from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -21,20 +22,50 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN environment variable not set.")
 ADMIN_USER_ID = os.getenv("CORTEX_ADMIN_USER_ID")
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GITHUB_REPO = os.getenv("GITHUB_REPO", "salemtheweaver/PythonTest")
 
-# Use /data/ volume on Railway for persistent storage, fallback to local directory
-DATA_DIR = "/data" if os.path.exists("/data") else "."
-JSON_FILE = os.path.join(DATA_DIR, "cortex_members.json")
-TAGS_FILE = os.path.join(DATA_DIR, "tags.json")
+JSON_FILE = "cortex_members.json"
+TAGS_FILE = "tags.json"
 
-# Copy existing local files to volume if they don't exist there yet
-if DATA_DIR == "/data":
-    for _fname in ["cortex_members.json", "tags.json"]:
-        _vol_path = os.path.join("/data", _fname)
-        _local_path = os.path.join(".", _fname)
-        if not os.path.exists(_vol_path) and os.path.exists(_local_path):
-            import shutil
-            shutil.copy2(_local_path, _vol_path)
+# --- GitHub persistence helpers ---
+def _github_get_file(filename):
+    """Get file content and sha from GitHub."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            content = base64.b64decode(data["content"]).decode("utf-8")
+            return json.loads(content), data["sha"]
+    except Exception:
+        return None, None
+
+def _github_save_file(filename, data_obj):
+    """Save JSON data to GitHub repo."""
+    if not GITHUB_TOKEN:
+        return
+    _, sha = _github_get_file(filename)
+    content = base64.b64encode(json.dumps(data_obj, indent=4).encode("utf-8")).decode("utf-8")
+    body = json.dumps({
+        "message": f"Auto-update {filename}",
+        "content": content,
+        **({"sha": sha} if sha else {}),
+    }).encode("utf-8")
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+    req = urllib.request.Request(url, data=body, method="PUT", headers={
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            resp.read()
+    except Exception as e:
+        print(f"[WARN] Failed to push {filename} to GitHub: {e}")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -185,12 +216,20 @@ TIMEZONE_FIXED_OFFSETS = {
 def save_systems():
     with open(JSON_FILE, "w") as f:
         json.dump(systems_data, f, indent=4)
+    _github_save_file(JSON_FILE, systems_data)
 
 if os.path.exists(JSON_FILE):
     with open(JSON_FILE, "r") as f:
         systems_data = json.load(f)
 else:
-    systems_data = {"systems": {}}
+    # Try loading from GitHub on fresh deploy
+    _gh_data, _ = _github_get_file(JSON_FILE)
+    if _gh_data:
+        systems_data = _gh_data
+        with open(JSON_FILE, "w") as f:
+            json.dump(systems_data, f, indent=4)
+    else:
+        systems_data = {"systems": {}}
 
 def get_moderation_state():
     state = systems_data.setdefault("_moderation", {})
@@ -2854,19 +2893,28 @@ else:
 # Load or create tags file
 # -----------------------------
 if not os.path.exists(TAGS_FILE):
-    with open(TAGS_FILE, "w") as f:
-        json.dump([], f, indent=4)
-
-with open(TAGS_FILE, "r") as f:
-    PRESET_TAGS = json.load(f)
+    _gh_tags, _ = _github_get_file(TAGS_FILE)
+    if _gh_tags:
+        PRESET_TAGS = _gh_tags
+        with open(TAGS_FILE, "w") as f:
+            json.dump(PRESET_TAGS, f, indent=4)
+    else:
+        PRESET_TAGS = []
+        with open(TAGS_FILE, "w") as f:
+            json.dump(PRESET_TAGS, f, indent=4)
+else:
+    with open(TAGS_FILE, "r") as f:
+        PRESET_TAGS = json.load(f)
 
 def save_tags():
     with open(TAGS_FILE, "w") as f:
         json.dump(PRESET_TAGS, f, indent=4)
+    _github_save_file(TAGS_FILE, PRESET_TAGS)
 
 def save_members():
     with open(JSON_FILE, "w") as f:
         json.dump(members, f, indent=4)
+    _github_save_file(JSON_FILE, members)
 
 def normalize_hex(hex_code: str):
     if not hex_code:
