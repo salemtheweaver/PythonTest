@@ -6868,23 +6868,23 @@ async def refresh(interaction: discord.Interaction):
 async def synccommands(interaction: discord.Interaction):
     await interaction.response.defer()
 
-    guild_synced = None
-    # Rebuild guild commands from global definitions for immediate availability in this server.
+    removed_guild_scoped = 0
+    # Clear any legacy guild-scoped copies to avoid duplicate entries in the slash menu.
     if interaction.guild is not None:
+        existing_guild_commands = tree.get_commands(guild=interaction.guild)
+        removed_guild_scoped = len(existing_guild_commands)
         tree.clear_commands(guild=interaction.guild)
-        tree.copy_global_to(guild=interaction.guild)
-        guild_synced = await tree.sync(guild=interaction.guild)
+        await tree.sync(guild=interaction.guild)
 
     global_synced = await tree.sync()
 
-    if guild_synced is not None:
-        await interaction.followup.send(
-            f"Commands synced: guild={len(guild_synced)} (immediate), global={len(global_synced)} (may take time to propagate)."
+    await interaction.followup.send(
+        (
+            f"Commands synced globally: {len(global_synced)}. "
+            f"Removed {removed_guild_scoped} guild-scoped command copies in this server. "
+            "Global updates may take time to propagate."
         )
-    else:
-        await interaction.followup.send(
-            f"Commands synced globally: {len(global_synced)} (may take time to propagate)."
-        )
+    )
 
 @tasks.loop(minutes=5)
 async def front_reminder_loop():
