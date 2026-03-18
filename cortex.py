@@ -420,6 +420,136 @@ def get_member_lookup_keys(member):
     return keys
 
 
+def resolve_member_identifier(members, token):
+    """Resolve a member by ID or name/display name.
+
+    Returns (member_id, member_dict, error_message).
+    """
+    if not isinstance(members, dict):
+        return None, None, "Member scope not found."
+
+    raw = str(token or "").strip()
+    if not raw:
+        return None, None, "Provide a member ID or name."
+
+    if raw in members:
+        return raw, members[raw], None
+
+    needle = raw.lower()
+
+    def member_names(member):
+        vals = []
+        for field in ("name", "display_name"):
+            text = str(member.get(field) or "").strip()
+            if text:
+                vals.append(text)
+        return vals
+
+    def dedupe(matches):
+        seen = set()
+        out = []
+        for mid, m in matches:
+            if mid in seen:
+                continue
+            seen.add(mid)
+            out.append((mid, m))
+        return out
+
+    exact = []
+    prefix = []
+    contains = []
+    for mid, member in members.items():
+        names = member_names(member)
+        lowered = [n.lower() for n in names]
+        if any(n == needle for n in lowered):
+            exact.append((mid, member))
+            continue
+        if any(n.startswith(needle) for n in lowered):
+            prefix.append((mid, member))
+            continue
+        if any(needle in n for n in lowered):
+            contains.append((mid, member))
+
+    for candidates in (dedupe(exact), dedupe(prefix), dedupe(contains)):
+        if len(candidates) == 1:
+            mid, member = candidates[0]
+            return mid, member, None
+        if len(candidates) > 1:
+            labels = [f"{m.get('name', mid)} (`{mid}`)" for mid, m in candidates[:6]]
+            suffix = " ..." if len(candidates) > 6 else ""
+            return None, None, "Ambiguous member name. Matches: " + ", ".join(labels) + suffix + "\nHint: use full name or member ID."
+
+    return None, None, "Member not found. Hint: use full name or member ID."
+
+
+def resolve_member_identifier_in_system(system, token, subsystem_id=None):
+    """Resolve a member by ID/name across one scope or the entire system.
+
+    Returns (scope_id, members_dict, member_id, member_dict, error_message).
+    """
+    raw = str(token or "").strip()
+    if not raw:
+        return None, None, None, None, "Provide a member ID or name."
+
+    if subsystem_id is not None:
+        members = system.get("subsystems", {}).get(subsystem_id, {}).get("members")
+        if members is None:
+            return None, None, None, None, f"Member not found in {get_scope_label(subsystem_id)}."
+        resolved_id, resolved_member, err = resolve_member_identifier(members, raw)
+        if err:
+            return None, None, None, None, err
+        return subsystem_id, members, resolved_id, resolved_member, None
+
+    candidates = []
+    needle = raw.lower()
+
+    for scope_id, members in iter_system_member_dicts(system):
+        for mid, member in members.items():
+            names = []
+            for field in ("name", "display_name"):
+                text = str(member.get(field) or "").strip()
+                if text:
+                    names.append(text)
+
+            lowered = [n.lower() for n in names]
+            rank = None
+            if raw == mid:
+                rank = 0
+            elif any(n == needle for n in lowered):
+                rank = 1
+            elif any(n.startswith(needle) for n in lowered):
+                rank = 2
+            elif any(needle in n for n in lowered):
+                rank = 3
+
+            if rank is not None:
+                candidates.append((rank, scope_id, members, mid, member))
+
+    if not candidates:
+        return None, None, None, None, "Member not found. Hint: use full name or member ID."
+
+    best_rank = min(c[0] for c in candidates)
+    best = [c for c in candidates if c[0] == best_rank]
+
+    # Deduplicate by (scope, member_id) in case name/display_name both matched.
+    deduped = []
+    seen = set()
+    for item in best:
+        key = (item[1], item[3])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+
+    if len(deduped) == 1:
+        _, scope_id, members, mid, member = deduped[0]
+        return scope_id, members, mid, member, None
+
+    labels = [f"{item[4].get('name', item[3])} (`{item[3]}` in {get_scope_label(item[1])})" for item in deduped[:6]]
+    suffix = " ..." if len(deduped) > 6 else ""
+    return None, None, None, None, "Ambiguous member name. Matches: " + ", ".join(labels) + suffix + "\nHint: use full name or member ID."
+
+
 def get_group_settings(system):
     """Return and initialize group settings for a system."""
     settings = system.setdefault("group_settings", {})
@@ -1148,43 +1278,79 @@ def format_playlist_link(url):
 
     return f"[{label}]({cleaned})"
 
+
+def normalize_embed_image_url(value):
+    """Normalize image URLs used in embeds and return None when invalid."""
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("<") and raw.endswith(">"):
+        raw = raw[1:-1].strip()
+    if raw.startswith("//"):
+        raw = "https:" + raw
+
+    lowered = raw.lower()
+    if lowered.startswith("http://") or lowered.startswith("https://"):
+        return raw
+    return None
+
+
+def is_ephemeral_discord_attachment_url(value):
+    """Return True when a Discord attachment URL is from the ephemeral attachment host/path."""
+    raw = str(value or "").lower()
+    return "ephemeral-attachments" in raw
+
 def build_member_profile_embed(member, system=None):
     """Build a member profile embed."""
-    desc = member.get("description", "No description.")
+    bio_text = str(member.get("description") or "No description.")
 
     try:
         embed_color = int(str(member.get("color", "FFFFFF")).lstrip("#"), 16)
     except (TypeError, ValueError):
         embed_color = int("00DE9B", 16)
 
+    tags = ", ".join(member.get("tags", [])) if member.get("tags") else "None"
+    proxy_text = render_member_proxy_result(member)
+    fronting = "Yes" if member.get("fronting") else "No"
+    groups_text = format_member_group_lines(system, member) if system is not None else "None"
+    if len(groups_text) > 600:
+        groups_text = groups_text[:597] + "..."
+    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else "None"
+
+    summary_lines = [
+        f"**ID:** {member['id']}",
+        f"**Pronouns:** {member.get('pronouns', 'Unknown')}",
+        f"**Birthday:** {member.get('birthday', 'Unknown')}",
+        f"**Tags:** {tags}",
+        f"**Proxy Tag:** {proxy_text}",
+        f"**Groups:** {groups_text}",
+        f"**Playlist:** {playlist_text}",
+        f"**Currently Fronting:** {fronting}",
+    ]
+
+    summary_text = "\n".join(summary_lines)
+    if len(summary_text) > 1600:
+        summary_text = summary_text[:1597] + "..."
+
     embed = discord.Embed(
         title=member["name"],
-        description=desc,
+        description=summary_text,
         color=embed_color
     )
 
-    if member.get("profile_pic"):
-        embed.set_thumbnail(url=member["profile_pic"])
+    profile_pic_url = normalize_embed_image_url(member.get("profile_pic"))
+    if profile_pic_url:
+        embed.set_thumbnail(url=profile_pic_url)
 
-    embed.add_field(name="ID", value=member["id"], inline=True)
-    embed.add_field(name="Pronouns", value=member.get("pronouns", "Unknown"), inline=True)
-    embed.add_field(name="Birthday", value=member.get("birthday", "Unknown"), inline=True)
+    bio_limit = 1000
+    if len(bio_text) > bio_limit:
+        bio_text = bio_text[:bio_limit - 3] + "..."
 
-    tags = ", ".join(member.get("tags", [])) if member.get("tags") else "None"
-    embed.add_field(name="Tags", value=tags, inline=False)
-    embed.add_field(name="Proxy Tag", value=render_member_proxy_result(member), inline=False)
+    embed.add_field(name="About", value=bio_text or "No description.", inline=False)
 
-    if system is not None:
-        embed.add_field(name="Groups", value=format_member_group_lines(system, member), inline=False)
-
-    if member.get("yt_playlist"):
-        embed.add_field(name="Playlist", value=format_playlist_link(member["yt_playlist"]), inline=False)
-
-    fronting = "Yes" if member.get("fronting") else "No"
-    embed.add_field(name="Currently Fronting", value=fronting, inline=False)
-
-    if member.get("banner"):
-        embed.set_image(url=member["banner"])
+    banner_url = normalize_embed_image_url(member.get("banner"))
+    if banner_url:
+        embed.set_image(url=banner_url)
 
     created_iso = member.get("created_at")
     if created_iso:
@@ -4134,8 +4300,13 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
     members = get_system_members(system_id, subsystem_id)
-    if members is None or member_id not in members:
+    if members is None:
         await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        return
+
+    resolved_member_id, resolved_member, resolve_error = resolve_member_identifier(members, member_id)
+    if resolve_error:
+        await interaction.response.send_message(resolve_error, ephemeral=True)
         return
 
     # End all currently fronting members first
@@ -4144,10 +4315,10 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
             end_front(m["id"], members_dict=members)
 
     # Start fronting the selected member
-    start_front(member_id, members_dict=members)
+    start_front(resolved_member_id, members_dict=members)
 
     # Build response
-    new_name = members[member_id]["name"]
+    new_name = resolved_member.get("name", resolved_member_id)
     response = f"Member **{new_name}** is now fronting in {get_scope_label(subsystem_id)}."
 
     # Show and clear any pending inbox messages
@@ -4155,7 +4326,7 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
     if cleanup_external_inbox_entries(system):
         save_systems()
 
-    inbox = members[member_id].get("inbox", [])
+    inbox = resolved_member.get("inbox", [])
     if inbox:
         external_settings = get_external_settings(system)
         delivery_mode = external_settings.get("delivery_mode", "public")
@@ -4184,7 +4355,7 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
                     response += "\n> Quiet hours are active, so external details were not DM'd right now."
                 else:
                     dm_lines = [
-                        f"External inbox for {members[member_id]['name']} ({get_scope_label(subsystem_id)}):"
+                        f"External inbox for {resolved_member.get('name', resolved_member_id)} ({get_scope_label(subsystem_id)}):"
                     ]
                     for idx, msg in enumerate(external_msgs, start=1):
                         dm_lines.append(f"\n#{idx}\n{format_inbox_entry_for_dm(msg)}")
@@ -4192,7 +4363,7 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
             except (discord.Forbidden, discord.HTTPException):
                 response += "\n> I could not DM you. External message details are hidden due to your privacy mode."
 
-        members[member_id]["inbox"] = []
+        resolved_member["inbox"] = []
 
     save_systems()
     await interaction.response.send_message(response)
@@ -4209,14 +4380,19 @@ async def cofrontmember(interaction: discord.Interaction, member_id: str, subsys
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
     members = get_system_members(system_id, subsystem_id)
-    if members is None or member_id not in members:
+    if members is None:
         await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
         return
 
-    view = CoFrontView(members, member_id)
+    resolved_member_id, resolved_member, resolve_error = resolve_member_identifier(members, member_id)
+    if resolve_error:
+        await interaction.response.send_message(resolve_error, ephemeral=True)
+        return
+
+    view = CoFrontView(members, resolved_member_id)
     await interaction.response.send_message(
         (
-            f"Select co-front members for **{members[member_id]['name']}** in {get_scope_label(subsystem_id)} then click Confirm. "
+            f"Select co-front members for **{resolved_member.get('name', resolved_member_id)}** in {get_scope_label(subsystem_id)} then click Confirm. "
             f"Page 1/{view.total_pages}. Selected: 0"
         ),
         view=view,
@@ -4235,12 +4411,12 @@ async def cofrontmember(interaction: discord.Interaction, member_id: str, subsys
             end_front(m["id"], members_dict=members)
 
     # Start the front session with co-fronts
-    start_front(member_id, cofronts=selected_cofronts, members_dict=members)
+    start_front(resolved_member_id, cofronts=selected_cofronts, members_dict=members)
     save_systems()
 
     co_names = ", ".join([members[c]["name"] for c in selected_cofronts]) if selected_cofronts else "None"
     await interaction.followup.send(
-        f"Member **{members[member_id]['name']}** is now fronting with co-fronts: {co_names} in {get_scope_label(subsystem_id)}.",
+        f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting with co-fronts: {co_names} in {get_scope_label(subsystem_id)}.",
         ephemeral=True
     )
 
@@ -5600,13 +5776,27 @@ async def editmemberimages(
 
     member = members_dict[member_id]
 
+    warnings = []
+
     if profile_pic:
         member["profile_pic"] = profile_pic.url
+        if is_ephemeral_discord_attachment_url(profile_pic.url):
+            warnings.append("profile pic")
     if banner:
         member["banner"] = banner.url
+        if is_ephemeral_discord_attachment_url(banner.url):
+            warnings.append("banner")
 
     save_systems()
-    await interaction.response.send_message(f"Updated profile/banner for **{member['name']}**.")
+    msg = f"Updated profile/banner for **{member['name']}**."
+    if warnings:
+        joined = ", ".join(warnings)
+        msg += (
+            "\nNote: Discord provided an expiring attachment URL for "
+            f"{joined}. If images disappear later, re-upload using prefix command "
+            "`Cor;editmemberimages <member_id> [subsystem_id]` with image attachment(s)."
+        )
+    await interaction.response.send_message(msg)
 
 # -----------------------------
 # List all members
@@ -7374,23 +7564,27 @@ async def switchmember_prefix(ctx: commands.Context, member_id: str, subsystem_i
         await ctx.send("You must register a main system first using /register.")
         return
 
-    members = get_system_members(system_id, subsystem_id)
-    if members is None or member_id not in members:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+    system = systems_data.get("systems", {}).get(system_id, {})
+    target_scope_id, members, resolved_member_id, resolved_member, resolve_error = resolve_member_identifier_in_system(
+        system,
+        member_id,
+        subsystem_id=subsystem_id,
+    )
+    if resolve_error:
+        await ctx.send(resolve_error)
         return
 
     for m in members.values():
         if m.get("current_front"):
             end_front(m["id"], members_dict=members)
 
-    start_front(member_id, members_dict=members)
+    start_front(resolved_member_id, members_dict=members)
 
-    response = f"Member **{members[member_id]['name']}** is now fronting in {get_scope_label(subsystem_id)}."
-    system = systems_data.get("systems", {}).get(system_id, {})
+    response = f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting in {get_scope_label(target_scope_id)}."
     if cleanup_external_inbox_entries(system):
         save_systems()
 
-    inbox = members[member_id].get("inbox", [])
+    inbox = resolved_member.get("inbox", [])
     if inbox:
         external_settings = get_external_settings(system)
         delivery_mode = external_settings.get("delivery_mode", "public")
@@ -7417,7 +7611,7 @@ async def switchmember_prefix(ctx: commands.Context, member_id: str, subsystem_i
                     response += "\n> Quiet hours are active, so external details were not DM'd right now."
                 else:
                     dm_lines = [
-                        f"External inbox for {members[member_id]['name']} ({get_scope_label(subsystem_id)}):"
+                        f"External inbox for {resolved_member.get('name', resolved_member_id)} ({get_scope_label(target_scope_id)}):"
                     ]
                     for idx, msg in enumerate(external_msgs, start=1):
                         dm_lines.append(f"\n#{idx}\n{format_inbox_entry_for_dm(msg)}")
@@ -7425,10 +7619,78 @@ async def switchmember_prefix(ctx: commands.Context, member_id: str, subsystem_i
             except (discord.Forbidden, discord.HTTPException):
                 response += "\n> I could not DM you. External message details are hidden due to your privacy mode."
 
-        members[member_id]["inbox"] = []
+        resolved_member["inbox"] = []
 
     save_systems()
     await ctx.send(response)
+
+
+@bot.command(name="cofrontmember", aliases=["cfm"])
+async def cofrontmember_prefix(
+    ctx: commands.Context,
+    member_id: str = None,
+    subsystem_id: str = None,
+    *,
+    cofront_member_ids: str = None,
+):
+    if not member_id:
+        await ctx.send("Usage: Cor;cofrontmember <member_id_or_name> [subsystem_id] [cofront_ids_or_names]")
+        return
+
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+
+    # Support shorthand: Cor;cofrontmember <member_id> <cofront_ids>
+    # If second arg is not a valid scope, treat it as co-front IDs in main scope.
+    members = get_system_members(system_id, subsystem_id)
+    if members is None and subsystem_id and not cofront_member_ids:
+        cofront_member_ids = subsystem_id
+        subsystem_id = None
+        members = get_system_members(system_id, subsystem_id)
+
+    if members is None:
+        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        return
+
+    resolved_member_id, resolved_member, resolve_error = resolve_member_identifier(members, member_id)
+    if resolve_error:
+        await ctx.send(resolve_error)
+        return
+
+    selected_cofronts = []
+    if cofront_member_ids:
+        tokens = [
+            t.strip()
+            for t in cofront_member_ids.replace(";", ",").replace(" ", ",").split(",")
+            if t.strip()
+        ]
+        seen = set()
+        for token in tokens:
+            resolved_co_id, _resolved_co_member, co_err = resolve_member_identifier(members, token)
+            if co_err:
+                await ctx.send(f"Co-front member `{token}` could not be resolved: {co_err}")
+                return
+            if resolved_co_id == resolved_member_id:
+                await ctx.send("Primary member cannot also be listed as a co-front.")
+                return
+            if resolved_co_id not in seen:
+                seen.add(resolved_co_id)
+                selected_cofronts.append(resolved_co_id)
+
+    for m in members.values():
+        if m.get("current_front"):
+            end_front(m["id"], members_dict=members)
+
+    start_front(resolved_member_id, cofronts=selected_cofronts, members_dict=members)
+    save_systems()
+
+    co_names = ", ".join([members[c]["name"] for c in selected_cofronts]) if selected_cofronts else "None"
+    await ctx.send(
+        f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting with co-fronts: {co_names} in {get_scope_label(subsystem_id)}."
+    )
 
 
 @bot.command(name="currentfronts", aliases=["cf"])
@@ -7700,7 +7962,77 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
 @bot.command(name="viewmember", aliases=["vm"])
 async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None, target_user_id: str = None):
     if not member_id:
-        await ctx.send("Usage: Cor;viewmember <member_id> [subsystem_id] [target_user_id]")
+        await ctx.send("Usage: Cor;viewmember <member_id or name> [subsystem_id] [target_user_id]")
+        return
+
+    requester_id = ctx.author.id
+    system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
+    if error:
+        await ctx.send(error)
+        return
+
+    target_scope_id, members_dict, resolved_member_id, member, resolve_error = \
+        resolve_member_identifier_in_system(system, member_id, subsystem_id=subsystem_id)
+    if resolve_error:
+        await ctx.send(resolve_error)
+        return
+
+    if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
+        await ctx.send("You do not have permission to view this member card.")
+        return
+
+    await ctx.send(embed=build_member_profile_embed(member, system=system))
+
+
+@bot.command(name="editmemberimages", aliases=["emi"])
+async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None):
+    if not member_id:
+        await ctx.send("Usage: Cor;editmemberimages <member_id> [subsystem_id] (attach 1-2 image files)")
+        return
+
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register using /register.")
+        return
+
+    members_dict = get_system_members(system_id, subsystem_id)
+    if members_dict is None or member_id not in members_dict:
+        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        return
+
+    attachments = list(ctx.message.attachments or [])
+    if not attachments:
+        await ctx.send("Attach 1 image (profile or banner) or 2 images (profile first, banner second).")
+        return
+
+    member = members_dict[member_id]
+    updated = []
+
+    if len(attachments) >= 2:
+        member["profile_pic"] = attachments[0].url
+        member["banner"] = attachments[1].url
+        updated = ["profile_pic", "banner"]
+    else:
+        single = attachments[0]
+        filename = (single.filename or "").lower()
+        if "banner" in filename:
+            member["banner"] = single.url
+            updated = ["banner"]
+        else:
+            member["profile_pic"] = single.url
+            updated = ["profile_pic"]
+
+    save_systems()
+    await ctx.send(
+        f"Updated **{', '.join(updated)}** for **{member.get('name', member_id)}** in {get_scope_label(subsystem_id)}."
+    )
+
+
+@bot.command(name="memberimagedebug", aliases=["midbg"])
+async def memberimagedebug_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None, target_user_id: str = None):
+    if not member_id:
+        await ctx.send("Usage: Cor;memberimagedebug <member_id> [subsystem_id] [target_user_id]")
         return
 
     requester_id = ctx.author.id
@@ -7719,7 +8051,26 @@ async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsys
         await ctx.send("You do not have permission to view this member card.")
         return
 
-    await ctx.send(embed=build_member_profile_embed(member, system=system))
+    raw_pic = str(member.get("profile_pic") or "")
+    raw_banner = str(member.get("banner") or "")
+    norm_pic = normalize_embed_image_url(raw_pic)
+    norm_banner = normalize_embed_image_url(raw_banner)
+
+    lines = [
+        f"Member: **{member.get('name', member_id)}** (`{member_id}`)",
+        f"Scope: {get_scope_label(subsystem_id)}",
+        f"Raw profile_pic set: {'yes' if raw_pic.strip() else 'no'}",
+        f"Raw banner set: {'yes' if raw_banner.strip() else 'no'}",
+        f"Normalized profile_pic valid: {'yes' if norm_pic else 'no'}",
+        f"Normalized banner valid: {'yes' if norm_banner else 'no'}",
+    ]
+
+    if norm_pic:
+        lines.append(f"Profile URL: {norm_pic}")
+    if norm_banner:
+        lines.append(f"Banner URL: {norm_banner}")
+
+    await ctx.send("\n".join(lines))
 
 
 @bot.command(name="editmembertag", aliases=["emt"])
