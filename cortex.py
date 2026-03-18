@@ -1329,24 +1329,27 @@ def build_member_profile_embed(member, system=None):
     ]
 
     summary_text = "\n".join(summary_lines)
-    if len(summary_text) > 1600:
-        summary_text = summary_text[:1597] + "..."
+
+    # Combine summary + bio into one description block separated by a rule
+    # This prevents awkward line splits on mobile between fields
+    bio_limit = 1000
+    if len(bio_text) > bio_limit:
+        bio_text = bio_text[:bio_limit - 3] + "..."
+    bio_section = bio_text or "No description."
+
+    full_description = f"{summary_text}\n\n**About**\n{bio_section}"
+    if len(full_description) > 4000:
+        full_description = full_description[:3997] + "..."
 
     embed = discord.Embed(
         title=member["name"],
-        description=summary_text,
+        description=full_description,
         color=embed_color
     )
 
     profile_pic_url = normalize_embed_image_url(member.get("profile_pic"))
     if profile_pic_url:
         embed.set_thumbnail(url=profile_pic_url)
-
-    bio_limit = 1000
-    if len(bio_text) > bio_limit:
-        bio_text = bio_text[:bio_limit - 3] + "..."
-
-    embed.add_field(name="About", value=bio_text or "No description.", inline=False)
 
     banner_url = normalize_embed_image_url(member.get("banner"))
     if banner_url:
