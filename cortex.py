@@ -10782,6 +10782,19 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         # User likely has DMs disabled; ignore silently.
         return
 
+    message_channel = bot.get_channel(payload.channel_id)
+    if message_channel is None:
+        try:
+            message_channel = await bot.fetch_channel(payload.channel_id)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            return
+
+    try:
+        proxied_message = await message_channel.fetch_message(payload.message_id)
+        await proxied_message.remove_reaction(payload.emoji, reactor_user)
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException, AttributeError):
+        pass
+
 
 @bot.event
 async def on_message_edit(before: discord.Message, after: discord.Message):
