@@ -62,6 +62,7 @@ def get_moderation_state():
     state.setdefault("reports", [])
     state.setdefault("sanctions", {})
     state.setdefault("events", [])
+    state.setdefault("bot_admin_user_ids", [])
     return state
 
 def get_user_sanctions(user_id):
@@ -92,10 +93,19 @@ def is_user_suspended(user_id, scope="external"):
     return sanction_scope == "all" or scope == "external"
 
 def is_bot_moderator_user(user_id):
+    normalized_user_id = str(user_id)
+
     if ADMIN_USER_ID and str(user_id) == str(ADMIN_USER_ID):
         return True
-    if str(user_id) in ADMIN_USER_IDS:
+    if normalized_user_id in ADMIN_USER_IDS:
         return True
+
+    # Fallback: allow runtime/persisted admin IDs stored in moderation state.
+    state = get_moderation_state()
+    persisted_admin_ids = state.get("bot_admin_user_ids", [])
+    if normalized_user_id in {str(admin_id) for admin_id in persisted_admin_ids}:
+        return True
+
     if bot.application and bot.application.owner:
         owner = bot.application.owner
         if hasattr(owner, "id") and str(user_id) == str(owner.id):
