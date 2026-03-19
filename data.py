@@ -136,7 +136,7 @@ def _github_list_dir(dirname):
     return []
 
 
-def _github_save_file(filename, data_obj, retries=3):
+def _github_save_file(filename, data_obj, retries=6):
     """Save JSON data to GitHub repo with retry logic and compact encoding."""
     if not GITHUB_TOKEN:
         return
@@ -168,8 +168,11 @@ def _github_save_file(filename, data_obj, retries=3):
             print(f"[WARN] GitHub save attempt {attempt}/{retries} for {filename} failed: HTTP Error {e.code}: {e.reason}")
             if attempt < retries:
                 import time
-                # 409 Conflict means stale SHA — wait longer for GitHub to settle
-                delay = 3 * attempt if e.code == 409 else 2 * attempt
+                # 409 Conflict means stale SHA — exponential backoff with jitter to avoid thundering herd
+                if e.code == 409:
+                    delay = min(60, 2 ** attempt)
+                else:
+                    delay = 2 * attempt
                 time.sleep(delay)
         except Exception as e:
             print(f"[WARN] GitHub save attempt {attempt}/{retries} for {filename} failed: {e}")
