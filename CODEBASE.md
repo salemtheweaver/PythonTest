@@ -21,12 +21,24 @@
 ## Version Control
 
 ### Current Version
-- **Version**: 2.0.0
+- **Version**: 2.1.1
 - **Release Date**: March 19, 2026
 - **Status**: Stable
 - **Architecture**: Modular (9-file structure)
 
 ### Changelog
+
+#### [2.1.1] — March 19, 2026
+**Interaction Timeout Fixes**
+
+**Changes**:
+- `save_systems()` now writes locally first and queues GitHub sync on a background worker instead of blocking command execution
+- Slash command `/register` now defers its interaction before saving and replies with a follow-up message
+
+**Bug Fixes**:
+- Fixed `Unknown interaction` failures when `/register` hit Discord's interaction timeout during GitHub-backed saves
+
+**Breaking Changes**: None
 
 #### [2.1.0] — March 19, 2026
 **Reliability & Import Improvements**
@@ -357,7 +369,7 @@ systems_data = {
 
 - `save_systems()` → None
   - Saves `systems_data` to local JSON file
-  - Calls `_github_save_file()` if GITHUB_TOKEN is set
+    - Queues GitHub persistence in a background worker if GITHUB_TOKEN is set
 
 **Initialization**:
 1. Check if `cortex_members.json` exists locally
@@ -1386,7 +1398,7 @@ external_settings = {
 Always call `save_systems()` after modifying `systems_data`:
 ```python
 systems_data["systems"][system_id]["members"][m_id]["name"] = "New Name"
-save_systems()  # Saves to JSON + GitHub
+save_systems()  # Saves locally immediately and syncs GitHub in the background
 ```
 
 ### Error Handling

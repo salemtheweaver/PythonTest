@@ -508,6 +508,9 @@ async def register(
     if get_user_system_id(user_id):
         await interaction.response.send_message("You already have a registered profile.", ephemeral=True)
         return
+
+    await interaction.response.defer(ephemeral=True)
+
     # Find next system id
     next_id = str(max([int(sid) for sid in systems_data["systems"].keys()] or [0]) + 1)
     systems_data["systems"][next_id] = {
@@ -565,12 +568,12 @@ async def register(
     }
     save_systems()
     if mode == "singlet":
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Singlet profile **{system_name}** registered! You can now use external messaging and wellness commands.",
             ephemeral=True
         )
     else:
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"System **{system_name}** registered! You can now add members and subsystems.",
             ephemeral=True
         )

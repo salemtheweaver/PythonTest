@@ -3,10 +3,47 @@
 import os
 import json
 import base64
+import threading
 import urllib.request
 import urllib.error
 
 from config import JSON_FILE, GITHUB_TOKEN, GITHUB_REPO
+
+
+_save_worker_lock = threading.Lock()
+_save_worker_started = False
+_save_condition = threading.Condition(_save_worker_lock)
+_pending_save_payload = None
+
+
+def _background_github_save_worker():
+    """Serialize GitHub saves so command handlers are not blocked by network I/O."""
+    global _pending_save_payload
+
+    while True:
+        with _save_condition:
+            while _pending_save_payload is None:
+                _save_condition.wait()
+            payload = _pending_save_payload
+            _pending_save_payload = None
+
+        _github_save_file(JSON_FILE, payload)
+
+
+def _queue_github_save(data_obj):
+    """Queue the latest data snapshot for background GitHub persistence."""
+    global _pending_save_payload, _save_worker_started
+
+    # Freeze the payload so later in-memory mutations do not leak into the save.
+    payload = json.loads(json.dumps(data_obj))
+
+    with _save_condition:
+        _pending_save_payload = payload
+        if not _save_worker_started:
+            worker = threading.Thread(target=_background_github_save_worker, daemon=True)
+            worker.start()
+            _save_worker_started = True
+        _save_condition.notify()
 
 
 # --- GitHub persistence helpers ---
@@ -89,4 +126,5 @@ else:
 def save_systems():
     with open(JSON_FILE, "w") as f:
         json.dump(systems_data, f, indent=4)
-    _github_save_file(JSON_FILE, systems_data)
+    if GITHUB_TOKEN:
+        _queue_github_save(systems_data)
