@@ -141,8 +141,8 @@ async def help_prefix(ctx: commands.Context):
                 "• Cor;servermemberidentity (`smi`) <member_id> <display_name|tag|icon|clear_display_name|clear_tag|clear_icon> [subsystem_id] [value]\n"
                 "• Cor;servermemberidentitystatus (`smis`) <member_id> [subsystem_id]\n\n"
                 "**Privacy**\n"
-                "• Cor;systemprivacy (`spv`) <private|trusted|public>\n"
-                "• Cor;alterprivacy (`apv`) <member_id> <private|trusted|public> [subsystem_id]\n"
+                "• Cor;systemprivacy (`spv`) <private|trusted|friends|public>\n"
+                "• Cor;alterprivacy (`apv`) <member_id> <private|trusted|friends|public> [subsystem_id]\n"
                 "• Cor;privacystatus (`pvs`)\n\n"
                 "**Timezone**\n"
                 "• Cor;settimezone (`stz`) <timezone>\n"
@@ -258,6 +258,7 @@ async def help_prefix(ctx: commands.Context):
                 "**Safety Lists**\n"
                 "• Cor;blockuser (`bu`) / Cor;unblockuser (`ubu`) / Cor;blockedusers (`bus`)\n"
                 "• Cor;trustuser (`tru`) / Cor;untrustuser (`utru`) / Cor;trustedusers (`trus`)\n"
+                "• Cor;frienduser (`fru`) / Cor;unfrienduser (`ufru`) / Cor;friendusers (`frus`)\n"
                 "• Cor;muteuser (`mu`) / Cor;unmuteuser (`umu`) / Cor;mutedusers (`mus`)\n"
                 "• Cor;tempblockuser (`tbu`) <user_id> [hours]\n"
                 "• Cor;tempblockedusers (`tbus`)\n"
@@ -298,6 +299,7 @@ async def help_prefix(ctx: commands.Context):
                 "`cg` creategroup | `eg` editgroup | `dg` deletegroup | `lg` listgroups | `go` grouporder | `goui` grouporderui | `amg` addmembergroup | `rmg` removemembergroup | `mg` membergroups\n"
                 "`aex` allowexternal | `epr` externalprivacy | `est` externalstatus | `elim` externallimits | `eto` externaltrustedonly | `eqh` externalquiethours | `ert` externalretention | `sxe` sendexternal\n"
                 "`bu` blockuser | `ubu` unblockuser | `bus` blockedusers | `tru` trustuser | `utru` untrustuser | `trus` trustedusers\n"
+                "`fru` frienduser | `ufru` unfrienduser | `frus` friendusers\n"
                 "`mu` muteuser | `umu` unmuteuser | `mus` mutedusers | `tbu` tempblockuser | `tbus` tempblockedusers | `ep` externalpending | `apx` approveexternal | `rex` recentexternal | `rptx` reportexternal\n"
                 "`mr` modreports | `mw` modwarn | `msu` modsuspend | `mb` modban | `mub` modunban | `map` modappeal"
             ),
@@ -2191,7 +2193,7 @@ async def systemtag_prefix(ctx: commands.Context, *, value: str = None):
 @bot.command(name="systemprivacy", aliases=["spv"])
 async def systemprivacy_prefix(ctx: commands.Context, level: str = None):
     if level is None:
-        await ctx.send("Usage: Cor;systemprivacy <private|trusted|public>")
+        await ctx.send("Usage: Cor;systemprivacy <private|trusted|friends|public>")
         return
 
     user_id = ctx.author.id
@@ -2207,7 +2209,7 @@ async def systemprivacy_prefix(ctx: commands.Context, level: str = None):
 
     raw_level = str(level).strip().lower()
     if raw_level not in PROFILE_PRIVACY_LEVELS:
-        await ctx.send("Invalid privacy level. Use: private, trusted, or public.")
+        await ctx.send("Invalid privacy level. Use: private, trusted, friends, or public.")
         return
 
     cleaned = raw_level
@@ -2219,7 +2221,7 @@ async def systemprivacy_prefix(ctx: commands.Context, level: str = None):
 @bot.command(name="alterprivacy", aliases=["apv"])
 async def alterprivacy_prefix(ctx: commands.Context, member_id: str = None, level: str = None, subsystem_id: str = None):
     if member_id is None or level is None:
-        await ctx.send("Usage: Cor;alterprivacy <member_id> <private|trusted|public> [subsystem_id]")
+        await ctx.send("Usage: Cor;alterprivacy <member_id> <private|trusted|friends|public> [subsystem_id]")
         return
 
     user_id = ctx.author.id
@@ -2238,7 +2240,7 @@ async def alterprivacy_prefix(ctx: commands.Context, member_id: str = None, leve
 
     raw_level = str(level).strip().lower()
     if raw_level not in PROFILE_PRIVACY_LEVELS:
-        await ctx.send("Invalid privacy level. Use: private, trusted, or public.")
+        await ctx.send("Invalid privacy level. Use: private, trusted, friends, or public.")
         return
 
     cleaned = raw_level
@@ -2261,7 +2263,7 @@ async def privacystatus_prefix(ctx: commands.Context):
         await ctx.send("System not found.")
         return
 
-    counts = {"private": 0, "trusted": 0, "public": 0}
+    counts = {"private": 0, "trusted": 0, "friends": 0, "public": 0}
     total_members = 0
     sample_lines = []
     for scope_id, members_dict in iter_system_member_dicts(system):
@@ -2275,8 +2277,16 @@ async def privacystatus_prefix(ctx: commands.Context):
     lines = [
         "**Privacy Status**",
         f"System privacy: **{get_system_privacy_level(system)}**",
-        f"Trusted users: **{len(get_external_settings(system).get('trusted_users', []))}**",
-        f"Alter privacy totals -> private: **{counts.get('private', 0)}**, trusted: **{counts.get('trusted', 0)}**, public: **{counts.get('public', 0)}**, total: **{total_members}**",
+        (
+            f"Trusted users: **{len(get_external_settings(system).get('trusted_users', []))}** | "
+            f"Friends: **{len(get_external_settings(system).get('friend_users', []))}**"
+        ),
+        (
+            f"Alter privacy totals -> private: **{counts.get('private', 0)}**, "
+            f"trusted: **{counts.get('trusted', 0)}**, "
+            f"friends: **{counts.get('friends', 0)}**, "
+            f"public: **{counts.get('public', 0)}**, total: **{total_members}**"
+        ),
     ]
     if sample_lines:
         lines.append("\n**Sample Alters**")
@@ -2775,6 +2785,7 @@ async def externalstatus_prefix(ctx: commands.Context):
     muted_count = len(settings.get("muted_users", []))
     trusted_only = "enabled" if settings.get("trusted_only") else "disabled"
     trusted_count = len(settings.get("trusted_users", []))
+    friend_count = len(settings.get("friend_users", []))
     pending_count = len(settings.get("pending_requests", []))
     temp_count = len(settings.get("temp_blocks", {}))
     quiet = settings.get("quiet_hours", {})
@@ -2782,7 +2793,7 @@ async def externalstatus_prefix(ctx: commands.Context):
     await ctx.send(
         f"External messages: **{enabled}**\n"
         f"Delivery mode: **{mode}**\n"
-        f"Trusted-only: **{trusted_only}** (trusted: {trusted_count}, pending: {pending_count})\n"
+        f"Trusted-only: **{trusted_only}** (trusted: {trusted_count}, friends: {friend_count}, pending: {pending_count})\n"
         f"Blocked users: **{blocked_count}** | Muted users: **{muted_count}** | Temp blocks: **{temp_count}**\n"
         f"Quiet hours: **{quiet_label}**\n"
         f"Limits: max chars **{settings.get('message_max_length', 1500)}**, target cooldown **{settings.get('target_rate_seconds', EXTERNAL_TARGET_LIMIT_SECONDS)}s**, retention **{settings.get('inbox_retention_days', 30)}d**"
@@ -2890,6 +2901,63 @@ async def trustedusers_prefix(ctx: commands.Context):
         await ctx.send("No trusted users.")
         return
     await ctx.send("Trusted users:\n" + "\n".join([f"- {u}" for u in trusted]))
+
+
+@bot.command(name="frienduser", aliases=["fru"])
+async def frienduser_prefix(ctx: commands.Context, user_id: str):
+    owner_id = ctx.author.id
+    system_id = get_user_system_id(owner_id)
+    if not system_id:
+        await ctx.send("You must register using /register.")
+        return
+    parsed = parse_discord_user_id(user_id)
+    if not parsed:
+        await ctx.send("Invalid user ID. Use a numeric Discord ID or mention.")
+        return
+    system = systems_data["systems"].get(system_id)
+    settings = get_external_settings(system)
+    friends = settings.get("friend_users", [])
+    if parsed not in friends:
+        friends.append(parsed)
+        settings["friend_users"] = friends
+        save_systems()
+    await ctx.send(f"Friend user added: `{parsed}`.")
+
+
+@bot.command(name="unfrienduser", aliases=["ufru"])
+async def unfrienduser_prefix(ctx: commands.Context, user_id: str):
+    owner_id = ctx.author.id
+    system_id = get_user_system_id(owner_id)
+    if not system_id:
+        await ctx.send("You must register using /register.")
+        return
+    parsed = parse_discord_user_id(user_id)
+    if not parsed:
+        await ctx.send("Invalid user ID. Use a numeric Discord ID or mention.")
+        return
+    system = systems_data["systems"].get(system_id)
+    settings = get_external_settings(system)
+    friends = settings.get("friend_users", [])
+    if parsed in friends:
+        friends.remove(parsed)
+        settings["friend_users"] = friends
+        save_systems()
+    await ctx.send(f"Friend user removed: `{parsed}`.")
+
+
+@bot.command(name="friendusers", aliases=["frus"])
+async def friendusers_prefix(ctx: commands.Context):
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register using /register.")
+        return
+    system = systems_data["systems"].get(system_id)
+    friends = get_external_settings(system).get("friend_users", [])
+    if not friends:
+        await ctx.send("No friend users.")
+        return
+    await ctx.send("Friend users:\n" + "\n".join([f"- {u}" for u in friends]))
 
 
 @bot.command(name="muteuser", aliases=["mu"])

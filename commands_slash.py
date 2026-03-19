@@ -133,6 +133,7 @@ from config import (
     COMMON_TIMEZONES,
     EXTERNAL_MSG_LIMIT_COUNT,
     EXTERNAL_MSG_LIMIT_SECONDS,
+    PROFILE_PRIVACY_LEVELS,
 )
 from views import GroupOrderView
 
@@ -804,7 +805,15 @@ async def systemprivacy(interaction: discord.Interaction, level: str):
         await interaction.response.send_message("System not found.", ephemeral=True)
         return
 
-    cleaned = normalize_profile_privacy_level(level)
+    raw_level = str(level).strip().lower()
+    if raw_level not in PROFILE_PRIVACY_LEVELS:
+        await interaction.response.send_message(
+            "Invalid privacy level. Use: private, trusted, friends, or public.",
+            ephemeral=True,
+        )
+        return
+
+    cleaned = raw_level
     system["system_privacy"] = cleaned
     save_systems()
     await interaction.response.send_message(
@@ -833,8 +842,16 @@ async def alterprivacy(
         await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
         return
 
+    raw_level = str(level).strip().lower()
+    if raw_level not in PROFILE_PRIVACY_LEVELS:
+        await interaction.response.send_message(
+            "Invalid privacy level. Use: private, trusted, friends, or public.",
+            ephemeral=True,
+        )
+        return
+
     member = members_dict[member_id]
-    cleaned = normalize_profile_privacy_level(level)
+    cleaned = raw_level
     member["privacy_level"] = cleaned
     save_systems()
     await interaction.response.send_message(
@@ -855,7 +872,7 @@ async def privacystatus(interaction: discord.Interaction):
         await interaction.response.send_message("System not found.", ephemeral=True)
         return
 
-    counts = {"private": 0, "trusted": 0, "public": 0}
+    counts = {"private": 0, "trusted": 0, "friends": 0, "public": 0}
     total_members = 0
     sample_lines = []
     for scope_id, members_dict in iter_system_member_dicts(system):
@@ -871,7 +888,10 @@ async def privacystatus(interaction: discord.Interaction):
         color=discord.Color.blurple(),
         description=(
             f"System privacy: **{get_system_privacy_level(system)}**\n"
-            f"Trusted users: **{len(get_external_settings(system).get('trusted_users', []))}**"
+            (
+                f"Trusted users: **{len(get_external_settings(system).get('trusted_users', []))}** | "
+                f"Friends: **{len(get_external_settings(system).get('friend_users', []))}**"
+            )
         ),
     )
     embed.add_field(
@@ -879,6 +899,7 @@ async def privacystatus(interaction: discord.Interaction):
         value=(
             f"Private: **{counts.get('private', 0)}**\n"
             f"Trusted: **{counts.get('trusted', 0)}**\n"
+            f"Friends: **{counts.get('friends', 0)}**\n"
             f"Public: **{counts.get('public', 0)}**\n"
             f"Total alters: **{total_members}**"
         ),
@@ -1677,6 +1698,7 @@ async def externalstatus(interaction: discord.Interaction, show_to_others: bool 
     muted_count = len(settings.get("muted_users", []))
     trusted_only = "enabled" if settings.get("trusted_only") else "disabled"
     trusted_count = len(settings.get("trusted_users", []))
+    friend_count = len(settings.get("friend_users", []))
     pending_count = len(settings.get("pending_requests", []))
     temp_count = len(settings.get("temp_blocks", {}))
     quiet = settings.get("quiet_hours", {})
@@ -1684,7 +1706,7 @@ async def externalstatus(interaction: discord.Interaction, show_to_others: bool 
     await interaction.response.send_message(
         f"External messages: **{enabled}**\n"
         f"Delivery mode: **{mode}**\n"
-        f"Trusted-only: **{trusted_only}** (trusted: {trusted_count}, pending: {pending_count})\n"
+        f"Trusted-only: **{trusted_only}** (trusted: {trusted_count}, friends: {friend_count}, pending: {pending_count})\n"
         f"Blocked users: **{blocked_count}** | Muted users: **{muted_count}** | Temp blocks: **{temp_count}**\n"
         f"Quiet hours: **{quiet_label}**\n"
         f"Limits: max chars **{settings.get('message_max_length', 1500)}**, target cooldown **{settings.get('target_rate_seconds', EXTERNAL_TARGET_LIMIT_SECONDS)}s**, retention **{settings.get('inbox_retention_days', 30)}d**",
@@ -1796,6 +1818,57 @@ async def trustedusers(interaction: discord.Interaction):
         await interaction.response.send_message("No trusted users.", ephemeral=True)
         return
     await interaction.response.send_message("Trusted users:\n" + "\n".join([f"- {u}" for u in trusted]), ephemeral=True)
+
+async def frienduser(interaction: discord.Interaction, user_id: str):
+    owner_id = interaction.user.id
+    system_id = get_user_system_id(owner_id)
+    if not system_id:
+        await interaction.response.send_message("You must register using /register.", ephemeral=True)
+        return
+    parsed = parse_discord_user_id(user_id)
+    if not parsed:
+        await interaction.response.send_message("Invalid user ID. Use a numeric Discord ID or mention.", ephemeral=True)
+        return
+    system = systems_data["systems"].get(system_id)
+    settings = get_external_settings(system)
+    friends = settings.get("friend_users", [])
+    if parsed not in friends:
+        friends.append(parsed)
+        settings["friend_users"] = friends
+        save_systems()
+    await interaction.response.send_message(f"Friend user added: `{parsed}`.", ephemeral=True)
+
+async def unfrienduser(interaction: discord.Interaction, user_id: str):
+    owner_id = interaction.user.id
+    system_id = get_user_system_id(owner_id)
+    if not system_id:
+        await interaction.response.send_message("You must register using /register.", ephemeral=True)
+        return
+    parsed = parse_discord_user_id(user_id)
+    if not parsed:
+        await interaction.response.send_message("Invalid user ID. Use a numeric Discord ID or mention.", ephemeral=True)
+        return
+    system = systems_data["systems"].get(system_id)
+    settings = get_external_settings(system)
+    friends = settings.get("friend_users", [])
+    if parsed in friends:
+        friends.remove(parsed)
+        settings["friend_users"] = friends
+        save_systems()
+    await interaction.response.send_message(f"Friend user removed: `{parsed}`.", ephemeral=True)
+
+async def friendusers(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await interaction.response.send_message("You must register using /register.", ephemeral=True)
+        return
+    system = systems_data["systems"].get(system_id)
+    friends = get_external_settings(system).get("friend_users", [])
+    if not friends:
+        await interaction.response.send_message("No friend users.", ephemeral=True)
+        return
+    await interaction.response.send_message("Friend users:\n" + "\n".join([f"- {u}" for u in friends]), ephemeral=True)
 
 @tree.command(name="muteuser", description="Mute a Discord user for external messages (quietly ignore)")
 async def muteuser(interaction: discord.Interaction, user_id: str):

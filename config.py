@@ -54,6 +54,7 @@ SINGLET_ALLOWED_COMMANDS = {
     "register", "allowexternal", "externalprivacy", "externalstatus",
     "sendexternal", "blockuser", "unblockuser", "blockedusers",
     "externaltrustedonly", "trustuser", "untrustuser", "trustedusers",
+    "frienduser", "unfrienduser", "friendusers",
     "muteuser", "unmuteuser", "mutedusers", "tempblockuser",
     "tempblockedusers", "externalpending", "approveexternal",
     "recentexternal", "externallimits", "externalquiethours",
@@ -63,7 +64,7 @@ SINGLET_ALLOWED_COMMANDS = {
     "systemprivacy", "alterprivacy", "privacystatus", "sendmessage",
 }
 
-PROFILE_PRIVACY_LEVELS = {"private", "trusted", "public"}
+PROFILE_PRIVACY_LEVELS = {"private", "trusted", "friends", "public"}
 
 TIMEZONE_ALIASES = {
     "EST": "America/New_York", "EDT": "America/New_York",

@@ -1410,6 +1410,7 @@ def get_external_settings(system):
     settings.setdefault("muted_users", [])
     settings.setdefault("trusted_only", False)
     settings.setdefault("trusted_users", [])
+    settings.setdefault("friend_users", [])
     settings.setdefault("temp_blocks", {})
     settings.setdefault("pending_requests", [])
     settings.setdefault("audit_log", [])
@@ -1422,6 +1423,7 @@ def get_external_settings(system):
     settings["blocked_users"] = [str(uid) for uid in settings.get("blocked_users", [])]
     settings["muted_users"] = [str(uid) for uid in settings.get("muted_users", [])]
     settings["trusted_users"] = [str(uid) for uid in settings.get("trusted_users", [])]
+    settings["friend_users"] = [str(uid) for uid in settings.get("friend_users", [])]
     settings["temp_blocks"] = {str(k): v for k, v in settings.get("temp_blocks", {}).items()}
     return settings
 
@@ -1589,8 +1591,12 @@ def can_view_with_privacy(level, system, viewer_user_id):
         return True
     if level == "public":
         return True
+    settings = get_external_settings(system)
+    trusted = set(str(uid) for uid in settings.get("trusted_users", []))
+    friends = set(str(uid) for uid in settings.get("friend_users", []))
+    if level == "friends":
+        return viewer_id in trusted or viewer_id in friends
     if level == "trusted":
-        trusted = set(str(uid) for uid in get_external_settings(system).get("trusted_users", []))
         return viewer_id in trusted
     return False
 
@@ -2274,8 +2280,8 @@ async def send_proxy_origin_dm(reactor_user, audit_entry):
     elif system and member:
         lines.append("Proxied member: hidden by privacy settings.")
 
-    # Show the member card when the member privacy is explicitly public.
-    if system and member and get_member_privacy_level(member) == "public":
+    # Show the member card when the viewer is allowed by member privacy rules.
+    if system and member and can_view_member_data(system, member, reactor_user.id):
         try:
             embed = build_member_profile_embed(member, system=system)
             await reactor_user.send("\n".join(lines), embed=embed)
