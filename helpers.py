@@ -105,9 +105,7 @@ def is_bot_moderator_user(user_id):
 async def ensure_moderator(interaction: discord.Interaction):
     if is_bot_moderator_user(interaction.user.id):
         return True
-    if not interaction.response.is_done():
-        await interaction.response.send_message("You do not have permission to use moderation commands.", ephemeral=True)
-    return False
+    raise discord.app_commands.CheckFailure("You do not have permission to use this command.")
 
 def add_mod_event(action, target_user_id=None, moderator_user_id=None, details=None):
     state = get_moderation_state()
