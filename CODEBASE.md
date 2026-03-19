@@ -1,6 +1,6 @@
 # Cortex Discord Bot — Codebase Documentation
 
-**Version**: 2.0.0 (Modular Architecture)  
+**Version**: 2.1.3 (Modular Architecture)  
 **Last Updated**: March 19, 2026
 
 ## Table of Contents
@@ -21,12 +21,26 @@
 ## Version Control
 
 ### Current Version
-- **Version**: 2.1.2
+- **Version**: 2.1.3
 - **Release Date**: March 19, 2026
 - **Status**: Stable
 - **Architecture**: Modular (9-file structure)
 
 ### Changelog
+
+#### [2.1.3] — March 19, 2026
+**Proxy Stability & Register UX**
+
+**Changes**:
+- Added short-window source-message deduping in `on_message` and `on_message_edit` to prevent double proxy sends from the same source message
+- Updated duplicate cleanup logic so matching webhook duplicates can be removed even when they are Cortex-created webhook messages
+- `/register` now allows `system_name` to be omitted and falls back to the user's display name
+
+**Bug Fixes**:
+- Reduced duplicate proxied outputs caused by repeated processing of the same message
+- Allowed singlet users to register without manually entering a system name
+
+**Breaking Changes**: None
 
 #### [2.1.2] — March 19, 2026
 **PluralKit Import Diagnostics**
@@ -121,7 +135,11 @@
 
 | Version | Date | Architecture | Status |
 |---------|------|--------------|--------|
-| 2.0.0 | March 19, 2026 | Modular (9 files) | Current/Stable |
+| 2.1.3 | March 19, 2026 | Modular (9 files) | Current/Stable |
+| 2.1.2 | March 19, 2026 | Modular (9 files) | Stable |
+| 2.1.1 | March 19, 2026 | Modular (9 files) | Stable |
+| 2.1.0 | March 19, 2026 | Modular (9 files) | Stable |
+| 2.0.0 | March 19, 2026 | Modular (9 files) | Stable |
 | 1.9.0 | Pre-refactor | Monolithic (1 file) | Deprecated |
 
 ### How to Track Changes
@@ -1464,7 +1482,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 ## Version & Dependency Information
 
-**Current Version**: 2.0.0  
+**Current Version**: 2.1.3  
 **Last Updated**: March 19, 2026  
 **Bot Architecture**: Modular (9-file structure)  
 **Python Version**: 3.8+  
