@@ -51,18 +51,26 @@ def _github_save_file(filename, data_obj):
 
 
 # --- Load systems data ---
-if os.path.exists(JSON_FILE):
+# Always prefer GitHub as the source of truth when a token is configured,
+# because Railway's filesystem resets on every deploy and the committed
+# JSON in the repo is stale compared to runtime changes saved to GitHub.
+_gh_data = None
+if GITHUB_TOKEN:
+    _gh_data, _ = _github_get_file(JSON_FILE)
+
+if _gh_data:
+    systems_data = _gh_data
+    # Write to local disk so the bot can read/write during this session
+    with open(JSON_FILE, "w") as f:
+        json.dump(systems_data, f, indent=4)
+    print(f"[INFO] Loaded {JSON_FILE} from GitHub ({len(systems_data.get('systems', {}))} systems)")
+elif os.path.exists(JSON_FILE):
     with open(JSON_FILE, "r") as f:
         systems_data = json.load(f)
+    print(f"[INFO] Loaded {JSON_FILE} from local disk ({len(systems_data.get('systems', {}))} systems)")
 else:
-    # Try loading from GitHub on fresh deploy
-    _gh_data, _ = _github_get_file(JSON_FILE)
-    if _gh_data:
-        systems_data = _gh_data
-        with open(JSON_FILE, "w") as f:
-            json.dump(systems_data, f, indent=4)
-    else:
-        systems_data = {"systems": {}}
+    systems_data = {"systems": {}}
+    print(f"[INFO] No existing data found, starting fresh")
 
 
 def save_systems():
