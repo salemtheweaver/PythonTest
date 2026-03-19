@@ -3262,7 +3262,7 @@ def format_us(iso_string):
     except Exception:
         return iso_string
 
-def start_front(member_id, cofronts=None, members_dict=None):
+def start_front(member_id, cofronts=None, members_dict=None, persist=True):
     """Start fronting for a member with optional co-fronts."""
     if cofronts is None:
         cofronts = []
@@ -3274,7 +3274,7 @@ def start_front(member_id, cofronts=None, members_dict=None):
 
     # End any existing front
     if member.get("current_front"):
-        end_front(member_id, members_dict=members_dict)
+        end_front(member_id, members_dict=members_dict, persist=False)
 
     # Set current front
     member["current_front"] = {
@@ -3289,8 +3289,10 @@ def start_front(member_id, cofronts=None, members_dict=None):
     member.setdefault("front_history", [])
     # Add new session to history (end=None for ongoing)
     member["front_history"].append({"start": now_iso, "end": None, "cofronts": cofronts})
+    if persist:
+        save_systems()
 
-def end_front(member_id, members_dict=None):
+def end_front(member_id, members_dict=None, persist=True):
     """End current front session for a member and record duration."""
     if members_dict is None:
         members_dict = members
@@ -3310,6 +3312,8 @@ def end_front(member_id, members_dict=None):
 
     # Reset current front
     member["current_front"] = None
+    if persist:
+        save_systems()
 
 # -----------------------------
 # Front duration helpers (unified)
@@ -4567,10 +4571,10 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
     # End all currently fronting members first
     for m in members.values():
         if m.get("current_front"):
-            end_front(m["id"], members_dict=members)
+            end_front(m["id"], members_dict=members, persist=False)
 
     # Start fronting the selected member
-    start_front(resolved_member_id, members_dict=members)
+    start_front(resolved_member_id, members_dict=members, persist=False)
 
     # Build response
     new_name = resolved_member.get("name", resolved_member_id)
@@ -4578,8 +4582,8 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
 
     # Show and clear any pending inbox messages
     system = systems_data.get("systems", {}).get(system_id, {})
-    if cleanup_external_inbox_entries(system):
-        save_systems()
+    cleanup_external_inbox_entries(system)
+    save_systems()
 
     inbox = resolved_member.get("inbox", [])
     if inbox:
@@ -4662,10 +4666,10 @@ async def cofrontmember(interaction: discord.Interaction, member: str, subsystem
     # End any current fronting sessions
     for m in members.values():
         if m.get("current_front"):
-            end_front(m["id"], members_dict=members)
+            end_front(m["id"], members_dict=members, persist=False)
 
     # Start the front session with co-fronts
-    start_front(resolved_member_id, cofronts=selected_cofronts, members_dict=members)
+    start_front(resolved_member_id, cofronts=selected_cofronts, members_dict=members, persist=False)
     save_systems()
 
     co_names = ", ".join([members[c]["name"] for c in selected_cofronts]) if selected_cofronts else "None"
@@ -6705,7 +6709,7 @@ async def clearfront(interaction: discord.Interaction, subsystem_id: str = None)
         any_fronting = False
         for m_id, m in members_dict.items():
             if m.get("current_front"):
-                end_front(m_id, members_dict=members_dict)
+                end_front(m_id, members_dict=members_dict, persist=False)
                 any_fronting = True
         save_systems()
         if any_fronting:
@@ -7868,13 +7872,13 @@ async def switchmember_prefix(ctx: commands.Context, member_id: str, subsystem_i
 
     for m in members.values():
         if m.get("current_front"):
-            end_front(m["id"], members_dict=members)
+            end_front(m["id"], members_dict=members, persist=False)
 
-    start_front(resolved_member_id, members_dict=members)
+    start_front(resolved_member_id, members_dict=members, persist=False)
 
     response = f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting in {get_scope_label(target_scope_id)}."
-    if cleanup_external_inbox_entries(system):
-        save_systems()
+    cleanup_external_inbox_entries(system)
+    save_systems()
 
     inbox = resolved_member.get("inbox", [])
     if inbox:
@@ -7974,9 +7978,9 @@ async def cofrontmember_prefix(
 
     for m in members.values():
         if m.get("current_front"):
-            end_front(m["id"], members_dict=members)
+            end_front(m["id"], members_dict=members, persist=False)
 
-    start_front(resolved_member_id, cofronts=selected_cofronts, members_dict=members)
+    start_front(resolved_member_id, cofronts=selected_cofronts, members_dict=members, persist=False)
     save_systems()
 
     co_names = ", ".join([members[c]["name"] for c in selected_cofronts]) if selected_cofronts else "None"
@@ -10615,6 +10619,12 @@ async def on_message(message: discord.Message):
                 scope_id_for_latch = active_autoproxy_settings.get("latch_scope_id")
                 latch_member_id = active_autoproxy_settings.get("latch_member_id")
                 proxy_member = get_member_from_scope(system, scope_id_for_latch, latch_member_id)
+                if latch_member_id is not None and proxy_member is None:
+                    await message.channel.send(
+                        f"{message.author.mention} autoproxy is set to latch, but the saved latched member could not be found. Proxy a message with a member tag first to set a new latch target."
+                    )
+                    await bot.process_commands(message)
+                    return
                 proxied_text = message.content
 
     # If no proxy triggered, process as normal command
@@ -10846,8 +10856,23 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
             explicit_proxy = True
             latch_update = True
             proxied_text = tagged_text
+        else:
+            mode = active_autoproxy_settings.get("mode", "off")
+            if mode == "front":
+                scope_id_for_latch, proxy_member = get_fronting_member_for_user(after.author.id)
+                proxied_text = after.content
+            elif mode == "latch":
+                scope_id_for_latch = active_autoproxy_settings.get("latch_scope_id")
+                latch_member_id = active_autoproxy_settings.get("latch_member_id")
+                proxy_member = get_member_from_scope(system, scope_id_for_latch, latch_member_id)
+                if latch_member_id is not None and proxy_member is None:
+                    await after.channel.send(
+                        f"{after.author.mention} autoproxy is set to latch, but the saved latched member could not be found. Proxy a message with a member tag first to set a new latch target."
+                    )
+                    return
+                proxied_text = after.content
 
-    if not explicit_proxy or not proxy_member:
+    if not proxy_member:
         return
 
     proxied_files = []
