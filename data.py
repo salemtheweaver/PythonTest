@@ -187,19 +187,26 @@ def _migrate_monolith_to_split():
 systems_data = {"systems": {}}
 
 if GITHUB_TOKEN:
-    # Try per-system files first
+    # Load per-system files
     split_systems = _github_load_all_systems()
     if split_systems:
         systems_data["systems"] = split_systems
         print(f"[INFO] Loaded {len(split_systems)} systems from GitHub per-system files")
-    else:
-        # Try migrating from monolith
-        migrated = _migrate_monolith_to_split()
-        if migrated:
-            systems_data["systems"] = migrated
-            print(f"[INFO] Migrated {len(migrated)} systems to per-system storage")
-        else:
-            print("[INFO] No systems found on GitHub")
+
+    # Also check monolith for any systems not yet in per-system files
+    mono_data, _ = _github_get_file(JSON_FILE)
+    if mono_data and mono_data.get("systems"):
+        new_from_mono = 0
+        for sys_id, sys_data in mono_data["systems"].items():
+            if sys_id not in systems_data["systems"]:
+                systems_data["systems"][sys_id] = sys_data
+                _github_save_system(sys_id, sys_data)
+                new_from_mono += 1
+        if new_from_mono:
+            print(f"[INFO] Restored {new_from_mono} missing systems from monolith to per-system files")
+
+    if not systems_data["systems"]:
+        print("[INFO] No systems found on GitHub")
 
 if not systems_data["systems"] and os.path.exists(JSON_FILE):
     with open(JSON_FILE, "r") as f:
@@ -207,6 +214,11 @@ if not systems_data["systems"] and os.path.exists(JSON_FILE):
     if local_data.get("systems"):
         systems_data = local_data
         print(f"[INFO] Loaded {JSON_FILE} from local disk ({len(systems_data['systems'])} systems)")
+        # Push all to per-system files
+        if GITHUB_TOKEN:
+            for sys_id, sys_data in systems_data["systems"].items():
+                _github_save_system(sys_id, sys_data)
+            print(f"[INFO] Pushed {len(systems_data['systems'])} systems to per-system files")
 
 if not systems_data["systems"]:
     print("[INFO] No existing data found, starting fresh")
