@@ -4899,7 +4899,7 @@ async def refresh(interaction: discord.Interaction):
 # Sync
 # -----------------------------
 @tree.command(name="synccommands", description="Force sync all commands globally")
-@app_commands.default_permissions(administrator=True)
+@app_commands.check(ensure_moderator)
 async def synccommands(interaction: discord.Interaction):
     await interaction.response.defer()
 
