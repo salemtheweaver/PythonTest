@@ -1,3 +1,4 @@
+import asyncio
 import discord
 from discord.ext import tasks
 from datetime import datetime, timezone, timedelta
@@ -22,6 +23,36 @@ from helpers import (
     send_proxy_origin_dm, normalize_embed_image_url,
     cleanup_external_inbox_entries,
 )
+
+# Track recently proxied messages so we can detect duplicates from other proxy bots.
+# Maps original_author_id -> {channel_id, content, timestamp}
+_recent_cortex_proxies = {}
+_PROXY_DEDUP_WINDOW_SECONDS = 5
+
+
+async def _cleanup_duplicate_proxy_messages(channel, original_author_id, proxied_content, our_proxied_message_id):
+    """After Cortex proxies, wait briefly then delete duplicate webhook messages from other proxy bots."""
+    await asyncio.sleep(1.5)
+
+    try:
+        async for msg in channel.history(limit=10, after=discord.Object(id=our_proxied_message_id - 1)):
+            # Skip our own proxied message
+            if msg.id == our_proxied_message_id:
+                continue
+            # Only target webhook messages (other proxy bots use webhooks)
+            if msg.webhook_id is None:
+                continue
+            # Skip messages from Cortex's own webhooks
+            if msg.author.id == bot.user.id:
+                continue
+            # Check if content matches what we just proxied
+            if msg.content and msg.content.strip() == proxied_content.strip():
+                try:
+                    await msg.delete()
+                except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                    pass
+    except (discord.Forbidden, discord.HTTPException):
+        pass
 
 
 # -----------------------------
@@ -300,6 +331,14 @@ async def on_message(message: discord.Message):
     except discord.HTTPException:
         pass
 
+    # Clean up duplicate proxy messages from other bots (e.g. PluralKit)
+    if proxied_message and final_content:
+        asyncio.create_task(
+            _cleanup_duplicate_proxy_messages(
+                message.channel, message.author.id, final_content, proxied_message.id
+            )
+        )
+
     await bot.process_commands(message)
 
 
@@ -534,6 +573,14 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
         pass
     except discord.HTTPException:
         pass
+
+    # Clean up duplicate proxy messages from other bots (e.g. PluralKit)
+    if proxied_message and final_content:
+        asyncio.create_task(
+            _cleanup_duplicate_proxy_messages(
+                after.channel, after.author.id, final_content, proxied_message.id
+            )
+        )
 
 
 def setup_events():
