@@ -888,6 +888,7 @@ async def privacystatus(interaction: discord.Interaction):
         color=discord.Color.blurple(),
         description=(
             f"System privacy: **{get_system_privacy_level(system)}**\n"
+            +
             (
                 f"Trusted users: **{len(get_external_settings(system).get('trusted_users', []))}** | "
                 f"Friends: **{len(get_external_settings(system).get('friend_users', []))}**"
@@ -4917,16 +4918,17 @@ async def synccommands(interaction: discord.Interaction):
 
     if not is_bot_admin and not is_guild_admin:
         location = "server" if interaction.guild is not None else "DM"
-        await interaction.response.send_message(
-            (
-                "You do not have permission to use this command. "
-                f"Detected: user_id={interaction.user.id}, context={location}, "
-                f"bot_admin={is_bot_admin}, guild_admin={is_guild_admin}. "
-                "Use this command in a server as a Discord administrator, "
-                "or add your user ID to CORTEX_ADMIN_USER_IDS and redeploy."
-            ),
-            ephemeral=True,
-        )
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                (
+                    "You do not have permission to use this command. "
+                    f"Detected: user_id={interaction.user.id}, context={location}, "
+                    f"bot_admin={is_bot_admin}, guild_admin={is_guild_admin}. "
+                    "Use this command in a server as a Discord administrator, "
+                    "or add your user ID to CORTEX_ADMIN_USER_IDS and redeploy."
+                ),
+                ephemeral=True,
+            )
         return
 
     await interaction.response.defer()
