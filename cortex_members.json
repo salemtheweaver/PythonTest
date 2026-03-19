@@ -3073,7 +3073,7 @@
             "autoproxy": {
                 "mode": "off",
                 "latch_scope_id": null,
-                "latch_member_id": null
+                "latch_member_id": "00093"
             },
             "autoproxy_server_overrides": {},
             "server_appearance_overrides": {},
@@ -3081,7 +3081,8 @@
             "group_settings": {
                 "groups": {},
                 "order": []
-            }
+            },
+            "member_display": {}
         }
     },
     "_moderation": {
