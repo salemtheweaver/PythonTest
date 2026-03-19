@@ -162,7 +162,8 @@ async def help_prefix(ctx: commands.Context):
                 "• Cor;checkinstatus\n"
                 "• Cor;weeklymoodsummary <true|false>\n\n"
                 "**Future Messaging** *(singlet only)*\n"
-                "• Cor;sendmessage (`schd`) target:future time:<time> message:\"<message>\"\n\n"
+                "• Cor;sendmessage (`schd`) target:future time:<time> message:\"<message>\"\n"
+                "  Accepts 2hrs, 1h30m, 1 day, tomorrow\n\n"
                 "**Front Reminders**\n"
                 "• Cor;frontreminders <true|false>\n"
                 "• Cor;setfrontreminderhours <hours>\n"
@@ -3223,7 +3224,7 @@ async def modappeal_prefix(ctx: commands.Context, *, message: str):
 @bot.command(name="sendmessage", aliases=["schd"])
 async def sendmessage_prefix(ctx: commands.Context, *, args: str = None):
     """Schedule a message to be sent to yourself in the future.
-    Usage: Cor;sendmessage target:future time:2hrs message:"Your message here"
+    Usage: Cor;sendmessage target:future time:"1h 30m" message:"Your message here"
     """
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)

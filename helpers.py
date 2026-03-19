@@ -1630,30 +1630,72 @@ def resolve_target_system_for_view(requester_user_id, target_user_id_raw=None):
 # ---------------------------------------------------------------------------
 
 def parse_time_delta(time_str):
-    """Parse time string like '2hrs', '30mins', '1day' and return timedelta or None."""
-    time_str = time_str.strip().lower()
+        """Parse friendly duration strings and return a timedelta or None.
 
-    # Try various formats
-    formats = [
-        (r'^(\d+)\s*h(?:ours?|rs?)?$', 'hours'),
-        (r'^(\d+)\s*m(?:in(?:utes?)?|s)?$', 'minutes'),
-        (r'^(\d+)\s*d(?:ays?)?$', 'days'),
-        (r'^(\d+)\s*s(?:ec(?:onds?)?)?$', 'seconds'),
-    ]
+        Accepts examples like `2hrs`, `30 mins`, `1 day`, `1h30m`, `1d 2h 15m`,
+        `90m`, `tomorrow`, and `next day`.
+        """
+        if not time_str:
+            return None
 
-    for pattern, unit in formats:
-        match = re.match(pattern, time_str)
-        if match:
+        normalized = time_str.strip().lower()
+        if not normalized:
+            return None
+
+        alias_map = {
+            "tomorrow": timedelta(days=1),
+            "next day": timedelta(days=1),
+            "nextday": timedelta(days=1),
+        }
+        if normalized in alias_map:
+            return alias_map[normalized]
+
+        compact = re.sub(r'\s+', '', normalized)
+        unit_map = {
+            'd': 'days',
+            'day': 'days',
+            'days': 'days',
+            'h': 'hours',
+            'hr': 'hours',
+            'hrs': 'hours',
+            'hour': 'hours',
+            'hours': 'hours',
+            'm': 'minutes',
+            'min': 'minutes',
+            'mins': 'minutes',
+            'minute': 'minutes',
+            'minutes': 'minutes',
+            's': 'seconds',
+            'sec': 'seconds',
+            'secs': 'seconds',
+            'second': 'seconds',
+            'seconds': 'seconds',
+        }
+
+        total_kwargs = {
+            'days': 0,
+            'hours': 0,
+            'minutes': 0,
+            'seconds': 0,
+        }
+
+        matches = list(re.finditer(r'(\d+)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|min|m|seconds?|secs?|sec|s)', compact))
+        if not matches:
+            return None
+
+        consumed = ''.join(match.group(0) for match in matches)
+        if consumed != compact:
+            return None
+
+        for match in matches:
             value = int(match.group(1))
-            if unit == 'hours':
-                return timedelta(hours=value)
-            elif unit == 'minutes':
-                return timedelta(minutes=value)
-            elif unit == 'days':
-                return timedelta(days=value)
-            elif unit == 'seconds':
-                return timedelta(seconds=value)
-    return None
+            canonical_unit = unit_map[match.group(2)]
+            total_kwargs[canonical_unit] += value
+
+        total_delta = timedelta(**total_kwargs)
+        if total_delta.total_seconds() <= 0:
+            return None
+        return total_delta
 
 
 def parse_sendmessage_args(args_str):
@@ -1663,16 +1705,16 @@ def parse_sendmessage_args(args_str):
     if not args_str:
         return None, None, None, "No arguments provided."
 
-    # Extract parts using a simple parser
     parts = {}
-
-    # Match target:value, time:value, and message:"quoted value"
-    pattern = r'(\w+):(?:"([^"]*)"|(\S+))'
-
-    matches = re.findall(pattern, args_str)
-    for key, quoted_val, unquoted_val in matches:
-        value = quoted_val if quoted_val else unquoted_val
-        parts[key.lower()] = value
+    key_matches = list(re.finditer(r'(\w+):', args_str))
+    for index, key_match in enumerate(key_matches):
+        key = key_match.group(1).lower()
+        value_start = key_match.end()
+        value_end = key_matches[index + 1].start() if index + 1 < len(key_matches) else len(args_str)
+        value = args_str[value_start:value_end].strip()
+        if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+            value = value[1:-1]
+        parts[key] = value
 
     # Validate required fields
     target = parts.get('target', '').lower()
@@ -1681,11 +1723,13 @@ def parse_sendmessage_args(args_str):
 
     time_str = parts.get('time', '')
     if not time_str:
-        return None, None, None, "Missing 'time' parameter (e.g., time:2hrs)."
+        return None, None, None, "Missing 'time' parameter (e.g., time:2hrs or time:\"1h 30m\")."
 
     time_delta = parse_time_delta(time_str)
     if not time_delta:
-        return None, None, None, f"Invalid time format: {time_str}. Use formats like 2hrs, 30mins, 1day."
+        return None, None, None, (
+            f"Invalid time format: {time_str}. Use formats like 2hrs, 30mins, 1day, 1h30m, 1d 2h, or tomorrow."
+        )
 
     message = parts.get('message', '').strip()
     if not message:
