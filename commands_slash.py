@@ -1398,10 +1398,26 @@ async def importpluralkit(
         pk_system = await fetch_pluralkit_system(token_value)
         pk_members = await fetch_pluralkit_members(token_value)
     except urllib.error.HTTPError as e:
+        error_body = ""
+        try:
+            error_body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            error_body = ""
+
         if e.code in (401, 403):
-            await interaction.followup.send("PluralKit rejected that token. Please check it and try again.", ephemeral=True)
+            detail = f" Details: {error_body[:300]}" if error_body else ""
+            await interaction.followup.send(
+                f"PluralKit rejected that token. Please check it and try again.{detail}",
+                ephemeral=True,
+            )
+        elif e.code == 429:
+            await interaction.followup.send("PluralKit rate limited the request. Please wait a moment and try again.", ephemeral=True)
         else:
-            await interaction.followup.send(f"PluralKit API error ({e.code}). Please try again shortly.", ephemeral=True)
+            detail = f" Details: {error_body[:300]}" if error_body else ""
+            await interaction.followup.send(
+                f"PluralKit API error ({e.code}). Please try again shortly.{detail}",
+                ephemeral=True,
+            )
         return
     except (urllib.error.URLError, TimeoutError):
         await interaction.followup.send("Could not reach PluralKit right now. Please try again shortly.", ephemeral=True)
@@ -1436,6 +1452,7 @@ async def importpluralkit(
     updated_count = 0
     skipped_count = 0
     failed_count = 0
+    error_samples = []
     total = len(pk_members)
     BATCH_SIZE = 25  # save every 25 members to keep GitHub pushes small
 
@@ -1507,8 +1524,11 @@ async def importpluralkit(
             for key in get_member_lookup_keys(created_member):
                 existing_by_key[key] = (member_id, created_member)
             imported_count += 1
-        except Exception:
+        except Exception as e:
             failed_count += 1
+            if len(error_samples) < 5:
+                member_name = raw_pk_member.get("name") or raw_pk_member.get("display_name") or raw_pk_member.get("id") or f"member #{i}"
+                error_samples.append(f"{member_name}: {type(e).__name__}: {e}")
 
         # Batch save: push to GitHub every BATCH_SIZE members to avoid huge uploads
         if not dry_run and i % BATCH_SIZE == 0:
@@ -1538,8 +1558,9 @@ async def importpluralkit(
         f"Imported new: **{imported_count}**\n"
         f"Updated existing: **{updated_count}**\n"
         f"Skipped existing: **{skipped_count}**\n"
-        f"Failed: **{failed_count}**\n\n"
-        f"Tip: run again with `dry_run:false` to apply changes.",
+        f"Failed: **{failed_count}**"
+        + (f"\nSample errors:\n- " + "\n- ".join(error_samples) if error_samples else "")
+        + ("\n\nTip: run again with `dry_run:false` to apply changes." if dry_run else ""),
         ephemeral=True
     )
 

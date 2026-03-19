@@ -21,12 +21,26 @@
 ## Version Control
 
 ### Current Version
-- **Version**: 2.1.1
+- **Version**: 2.1.2
 - **Release Date**: March 19, 2026
 - **Status**: Stable
 - **Architecture**: Modular (9-file structure)
 
 ### Changelog
+
+#### [2.1.2] — March 19, 2026
+**PluralKit Import Diagnostics**
+
+**Changes**:
+- PluralKit token normalization now strips angle-bracket wrappers and embedded whitespace/control characters from pasted tokens
+- `/importpluralkit` now includes API response details for rejected tokens and rate-limit responses
+- Import summaries now include sample per-member errors instead of silently counting failures
+
+**Bug Fixes**:
+- Reduced cases where valid pasted PluralKit tokens fail because of hidden formatting characters
+- Made partial import failures diagnosable from the command output
+
+**Breaking Changes**: None
 
 #### [2.1.1] — March 19, 2026
 **Interaction Timeout Fixes**

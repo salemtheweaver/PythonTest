@@ -1717,6 +1717,12 @@ def normalize_pluralkit_token(raw_token: str) -> str:
     if token.startswith("||") and token.endswith("||") and len(token) > 4:
         token = token[2:-2].strip()
 
+    # Remove angle-bracket wrappers and any embedded whitespace/control chars.
+    if token.startswith("<") and token.endswith(">") and len(token) > 2:
+        token = token[1:-1].strip()
+
+    token = "".join(ch for ch in token if ch.isprintable() and not ch.isspace())
+
     return token
 
 def _fetch_pluralkit_members_sync(token: str):
