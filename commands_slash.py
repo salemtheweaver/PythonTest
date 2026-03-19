@@ -122,6 +122,7 @@ from helpers import (
     resolve_target_system_for_view,
     fetch_pluralkit_members,
     fetch_pluralkit_system,
+    normalize_pluralkit_token,
     map_pluralkit_member_to_cortex,
     is_user_suspended,
     _recent_checkins,
@@ -1385,7 +1386,7 @@ async def importpluralkit(
 
     await interaction.response.defer(ephemeral=True)
 
-    token_value = (token or "").strip()
+    token_value = normalize_pluralkit_token(token)
     if not token_value:
         await interaction.followup.send("Please provide a valid PluralKit token.", ephemeral=True)
         return

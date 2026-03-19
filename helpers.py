@@ -1695,8 +1695,33 @@ def add_scheduled_message(user_id, message, time_delta):
 # PluralKit import helpers
 # ---------------------------------------------------------------------------
 
+def normalize_pluralkit_token(raw_token: str) -> str:
+    """Normalize a pasted PluralKit token from common copy/paste wrappers."""
+    token = str(raw_token or "").strip()
+    if not token:
+        return ""
+
+    # Accept tokens pasted with an "Authorization:" prefix.
+    if token.lower().startswith("authorization:"):
+        token = token.split(":", 1)[1].strip()
+
+    # Some users paste a bearer-form token from generic API tools.
+    if token.lower().startswith("bearer "):
+        token = token[7:].strip()
+
+    # Remove matching quote wrappers repeatedly.
+    while len(token) >= 2 and token[0] == token[-1] and token[0] in {"`", '"', "'"}:
+        token = token[1:-1].strip()
+
+    # Remove Discord spoiler wrapper if copied from ||token|| formatting.
+    if token.startswith("||") and token.endswith("||") and len(token) > 4:
+        token = token[2:-2].strip()
+
+    return token
+
 def _fetch_pluralkit_members_sync(token: str):
     """Fetch members for the authenticated PluralKit system."""
+    token = normalize_pluralkit_token(token)
     request = urllib.request.Request(
         "https://api.pluralkit.me/v2/systems/@me/members",
         headers={
@@ -1716,6 +1741,7 @@ def _fetch_pluralkit_members_sync(token: str):
 
 def _fetch_pluralkit_system_sync(token: str):
     """Fetch system details for the authenticated PluralKit system."""
+    token = normalize_pluralkit_token(token)
     request = urllib.request.Request(
         "https://api.pluralkit.me/v2/systems/@me",
         headers={
