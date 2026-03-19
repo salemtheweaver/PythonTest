@@ -67,7 +67,7 @@ def _queue_system_save(system_id, system_data):
 
 # --- GitHub persistence helpers ---
 def _github_get_file(filename):
-    """Get file content and sha from GitHub."""
+    """Get file content and sha from GitHub. Handles large files via download_url."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
     req = urllib.request.Request(url, headers={
         "Authorization": f"token {GITHUB_TOKEN}",
@@ -75,11 +75,22 @@ def _github_get_file(filename):
     })
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            content = base64.b64decode(data["content"]).decode("utf-8")
-            return json.loads(content), data["sha"]
-    except Exception:
-        return None, None
+            meta = json.loads(resp.read().decode("utf-8"))
+            sha = meta.get("sha")
+            # Small files have inline content; large files only have download_url
+            if meta.get("content"):
+                content = base64.b64decode(meta["content"]).decode("utf-8")
+                return json.loads(content), sha
+            elif meta.get("download_url"):
+                dl_req = urllib.request.Request(meta["download_url"], headers={
+                    "Authorization": f"token {GITHUB_TOKEN}",
+                })
+                with urllib.request.urlopen(dl_req, timeout=30) as dl_resp:
+                    content = dl_resp.read().decode("utf-8")
+                    return json.loads(content), sha
+    except Exception as e:
+        print(f"[WARN] _github_get_file({filename}) failed: {e}")
+    return None, None
 
 
 def _github_list_dir(dirname):
