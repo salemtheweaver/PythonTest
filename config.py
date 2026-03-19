@@ -12,6 +12,11 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN environment variable not set.")
 ADMIN_USER_ID = os.getenv("CORTEX_ADMIN_USER_ID")
+ADMIN_USER_IDS = {
+    token.strip()
+    for token in (os.getenv("CORTEX_ADMIN_USER_IDS") or "").split(",")
+    if token.strip()
+}
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "salemtheweaver/PythonTest")
 INSTANCE_LABEL = (os.getenv("CORTEX_INSTANCE_LABEL") or "").strip()

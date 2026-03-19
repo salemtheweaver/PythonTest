@@ -17,6 +17,7 @@ from discord.ext import commands
 
 from config import (
     ADMIN_USER_ID,
+    ADMIN_USER_IDS,
     COMMON_TAG_PRESETS,
     EXTERNAL_MSG_LIMIT_COUNT,
     EXTERNAL_MSG_LIMIT_SECONDS,
@@ -92,6 +93,8 @@ def is_user_suspended(user_id, scope="external"):
 
 def is_bot_moderator_user(user_id):
     if ADMIN_USER_ID and str(user_id) == str(ADMIN_USER_ID):
+        return True
+    if str(user_id) in ADMIN_USER_IDS:
         return True
     if bot.application and bot.application.owner:
         owner = bot.application.owner
