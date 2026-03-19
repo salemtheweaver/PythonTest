@@ -8906,7 +8906,7 @@ async def membergroups_prefix(ctx: commands.Context, member_id: str, subsystem_i
     await ctx.send(embed=embed)
 
 
-@bot.command(name="searchmember", aliases=["sm"])
+@bot.command(name="searchmember", aliases=["srm"])
 async def searchmember_prefix(ctx: commands.Context, query: str = None, subsystem_id: str = None):
     if not query:
         await ctx.send("Usage: Cor;searchmember <query> [subsystem_id]")
