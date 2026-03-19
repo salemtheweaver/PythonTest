@@ -1405,9 +1405,11 @@ async def importpluralkit(
             error_body = ""
 
         if e.code in (401, 403):
-            detail = f" Details: {error_body[:300]}" if error_body else ""
             await interaction.followup.send(
-                f"PluralKit rejected that token. Please check it and try again.{detail}",
+                "PluralKit rejected that token. Make sure you:\n"
+                "1. Use `pk;token` in DMs with PluralKit to get your token\n"
+                "2. Copy the **full token** (it looks like `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`)\n"
+                "3. Paste it directly — don't add quotes or extra text",
                 ephemeral=True,
             )
         elif e.code == 429:
