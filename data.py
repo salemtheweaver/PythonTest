@@ -233,26 +233,36 @@ if GITHUB_TOKEN:
         systems_data["systems"] = split_systems
         print(f"[INFO] Loaded {len(split_systems)} systems from GitHub per-system files")
 
-    # Also check monolith for any systems not yet in per-system files
+    # Always load moderation/admin data from main monolith file
     mono_data, _ = _github_get_file(JSON_FILE)
-    if mono_data and mono_data.get("systems"):
-        new_from_mono = 0
-        for sys_id, sys_data in mono_data["systems"].items():
-            if sys_id not in systems_data["systems"]:
-                systems_data["systems"][sys_id] = sys_data
-                _github_save_system(sys_id, sys_data)
-                new_from_mono += 1
-        if new_from_mono:
-            print(f"[INFO] Restored {new_from_mono} missing systems from monolith to per-system files")
+    if mono_data:
+        if mono_data.get("_moderation"):
+            systems_data["_moderation"] = mono_data["_moderation"]
+            print(f"[INFO] Loaded moderation state from {JSON_FILE}")
+        
+        # Also check monolith for any systems not yet in per-system files
+        if mono_data.get("systems"):
+            new_from_mono = 0
+            for sys_id, sys_data in mono_data["systems"].items():
+                if sys_id not in systems_data["systems"]:
+                    systems_data["systems"][sys_id] = sys_data
+                    _github_save_system(sys_id, sys_data)
+                    new_from_mono += 1
+            if new_from_mono:
+                print(f"[INFO] Restored {new_from_mono} missing systems from monolith to per-system files")
 
     if not systems_data["systems"]:
         print("[INFO] No systems found on GitHub")
 
-if not systems_data["systems"] and os.path.exists(JSON_FILE):
+if os.path.exists(JSON_FILE):
     with open(JSON_FILE, "r") as f:
         local_data = json.load(f)
-    if local_data.get("systems"):
-        systems_data = local_data
+    # Always load moderation data from local file if it exists
+    if local_data.get("_moderation"):
+        systems_data.setdefault("_moderation", {}).update(local_data["_moderation"])
+    # Load systems if no systems were found from GitHub
+    if not systems_data["systems"] and local_data.get("systems"):
+        systems_data["systems"] = local_data["systems"]
         print(f"[INFO] Loaded {JSON_FILE} from local disk ({len(systems_data['systems'])} systems)")
         # Push all to per-system files
         if GITHUB_TOKEN:
