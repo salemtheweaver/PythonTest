@@ -1281,48 +1281,67 @@ def is_ephemeral_discord_attachment_url(value):
     return "ephemeral-attachments" in raw
 
 def build_member_profile_embed(member, system=None):
-    """Build a member profile embed."""
-    bio_text = str(member.get("description") or "No description.")
+    """Build a member profile embed matching PluralKit-style layout."""
+    DIVIDER = "─" * 30
 
     try:
         embed_color = int(str(member.get("color", "FFFFFF")).lstrip("#"), 16)
     except (TypeError, ValueError):
         embed_color = int("00DE9B", 16)
 
-    tags = ", ".join(member.get("tags", [])) if member.get("tags") else "None"
-    proxy_text = render_member_proxy_result(member)
+    # --- Title: name + display name ---
+    display_name = member.get("display_name")
+    title = member["name"]
+
+    # --- Description: build sections separated by dividers ---
+    sections = []
+
+    # Section 1: Basic info
+    if display_name:
+        sections.append(f"**Display name:** {display_name}")
+    info_lines = [f"**ID:** {member['id']}"]
+    pronouns = member.get("pronouns")
+    if pronouns:
+        info_lines.append(f"**Pronouns:** {pronouns}")
+    birthday = member.get("birthday")
+    if birthday:
+        info_lines.append(f"**Birthday:** {birthday}")
+    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
+    if tags:
+        info_lines.append(f"**Tags:** {tags}")
+    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
+    if playlist_text:
+        info_lines.append(f"**Playlist:** {playlist_text}")
     fronting = "Yes" if member.get("fronting") else "No"
-    groups_text = format_member_group_lines(system, member) if system is not None else "None"
-    if len(groups_text) > 600:
-        groups_text = groups_text[:597] + "..."
-    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else "None"
+    info_lines.append(f"**Currently Fronting:** {fronting}")
+    sections.append("\n".join(info_lines))
 
-    summary_lines = [
-        f"**ID:** {member['id']}",
-        f"**Pronouns:** {member.get('pronouns', 'Unknown')}",
-        f"**Birthday:** {member.get('birthday', 'Unknown')}",
-        f"**Tags:** {tags}",
-        f"**Proxy Tag:** {proxy_text}",
-        f"**Groups:** {groups_text}",
-        f"**Playlist:** {playlist_text}",
-        f"**Currently Fronting:** {fronting}",
-    ]
+    # Section 2: Proxy tags
+    proxy_text = render_member_proxy_result(member)
+    if proxy_text and proxy_text != "Not set":
+        sections.append(f"**Proxy tags:**\n`{proxy_text}`")
 
-    summary_text = "\n".join(summary_lines)
+    # Section 3: Groups
+    if system is not None:
+        groups_text = format_member_group_lines(system, member)
+        if groups_text and groups_text != "None":
+            if len(groups_text) > 600:
+                groups_text = groups_text[:597] + "..."
+            sections.append(f"**Groups:**\n{groups_text}")
 
-    # Combine summary + bio into one description block separated by a rule
-    # This prevents awkward line splits on mobile between fields
-    bio_limit = 1000
-    if len(bio_text) > bio_limit:
-        bio_text = bio_text[:bio_limit - 3] + "..."
-    bio_section = bio_text or "No description."
+    # Section 4: About/bio
+    bio_text = str(member.get("description") or "").strip()
+    if bio_text:
+        if len(bio_text) > 1000:
+            bio_text = bio_text[:997] + "..."
+        sections.append(f"**About**\n{bio_text}")
 
-    full_description = f"{summary_text}\n\n**About**\n{bio_section}"
+    full_description = f"\n{DIVIDER}\n".join(sections)
     if len(full_description) > 4000:
         full_description = full_description[:3997] + "..."
 
     embed = discord.Embed(
-        title=member["name"],
+        title=title,
         description=full_description,
         color=embed_color
     )
