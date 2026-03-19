@@ -1,8 +1,10 @@
 # data.py — Data persistence, GitHub helpers, and systems_data
 
 import os
+import sys
 import json
 import base64
+import signal
 import threading
 import urllib.request
 import urllib.error
@@ -63,6 +65,30 @@ def _queue_system_save(system_id, system_data):
             worker.start()
             _save_worker_started = True
         _save_condition.notify()
+
+
+def flush_pending_save():
+    """Synchronously flush any queued GitHub save. Called on shutdown so in-flight
+    saves are not lost when the process receives SIGTERM."""
+    global _pending_save_payload
+    with _save_condition:
+        payload = _pending_save_payload
+        _pending_save_payload = None
+    if payload and GITHUB_TOKEN:
+        print("[INFO] Flushing pending GitHub saves before shutdown...")
+        for sys_id, sys_data in payload.get("systems", {}).items():
+            _github_save_system(sys_id, sys_data)
+        print("[INFO] Shutdown save complete.")
+
+
+def _sigterm_handler(signum, frame):
+    """Handle SIGTERM gracefully: flush pending saves then exit."""
+    print("[INFO] SIGTERM received — flushing saves before exit.")
+    flush_pending_save()
+    sys.exit(0)
+
+
+signal.signal(signal.SIGTERM, _sigterm_handler)
 
 
 # --- GitHub persistence helpers ---
