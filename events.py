@@ -28,6 +28,24 @@ from helpers import (
 # Maps original_author_id -> {channel_id, content, timestamp}
 _recent_cortex_proxies = {}
 _PROXY_DEDUP_WINDOW_SECONDS = 5
+_recent_processed_source_ids = {}
+
+
+def _mark_source_message_processed(message_id: int) -> bool:
+    """Return True if this source message was processed recently, else mark it now."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=_PROXY_DEDUP_WINDOW_SECONDS)
+
+    stale_ids = [mid for mid, ts in _recent_processed_source_ids.items() if ts < cutoff]
+    for mid in stale_ids:
+        _recent_processed_source_ids.pop(mid, None)
+
+    previous = _recent_processed_source_ids.get(message_id)
+    if previous and previous >= cutoff:
+        return True
+
+    _recent_processed_source_ids[message_id] = now
+    return False
 
 
 async def _cleanup_duplicate_proxy_messages(channel, original_author_id, proxied_content, our_proxied_message_id):
@@ -41,9 +59,6 @@ async def _cleanup_duplicate_proxy_messages(channel, original_author_id, proxied
                 continue
             # Only target webhook messages (other proxy bots use webhooks)
             if msg.webhook_id is None:
-                continue
-            # Skip messages from Cortex's own webhooks
-            if msg.author.id == bot.user.id:
                 continue
             # Check if content matches what we just proxied
             if msg.content and msg.content.strip() == proxied_content.strip():
@@ -81,6 +96,10 @@ async def on_ready():
 async def on_message(message: discord.Message):
     # Never proxy bot/webhook traffic.
     if message.author.bot or message.webhook_id is not None:
+        return
+
+    # Prevent accidental double-processing of the same source message.
+    if _mark_source_message_processed(message.id):
         return
 
     pending_until = PENDING_TIMEZONE_PROMPTS.get(message.author.id)
@@ -393,6 +412,10 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     if after.author.bot or after.webhook_id is not None:
         return
     if before.content == after.content:
+        return
+
+    # Prevent accidental double-processing of the same edited source message.
+    if _mark_source_message_processed(after.id):
         return
 
     # Never proxy the starter post of a forum thread, even after edits.
