@@ -24,9 +24,15 @@ if not TOKEN:
 ADMIN_USER_ID = os.getenv("CORTEX_ADMIN_USER_ID")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "salemtheweaver/PythonTest")
+INSTANCE_LABEL = (os.getenv("CORTEX_INSTANCE_LABEL") or "").strip()
 
 JSON_FILE = "cortex_members.json"
 TAGS_FILE = "tags.json"
+
+def with_instance_label(message: str) -> str:
+    if not INSTANCE_LABEL:
+        return message
+    return f"[{INSTANCE_LABEL}] {message}"
 
 # --- GitHub persistence helpers ---
 def _github_get_file(filename):
@@ -92,6 +98,37 @@ external_target_rate_state = {}
 EXTERNAL_AUDIT_MAX = 200
 PENDING_TIMEZONE_PROMPTS = {}
 SCHEDULED_MESSAGES = {}  # {user_id: [{"send_at": datetime, "message": str}, ...]}
+PROXY_MESSAGE_AUDIT = {}  # {proxied_message_id: metadata}
+MAX_PROXY_AUDIT_ENTRIES = 5000
+ORIGIN_LOOKUP_EMOJIS = {"❓", "❔"}
+
+COMMON_TAG_PRESETS = [
+    "host",
+    "co-host",
+    "primary",
+    "protector",
+    "persecutor",
+    "gatekeeper",
+    "caretaker",
+    "trauma holder",
+    "memory holder",
+    "little",
+    "middle",
+    "teen",
+    "adult",
+    "fictive",
+    "factive",
+    "introject",
+    "fragment",
+    "subsystem",
+    "fronting",
+    "co-fronting",
+    "social",
+    "anxious",
+    "nonverbal",
+    "internal",
+    "external",
+]
 
 MOD_COMMANDS = {
     "modreports",
@@ -1009,6 +1046,61 @@ def get_system_proxy_tag(system):
     """Return system-level tag suffix for proxied messages."""
     return system.get("system_tag")
 
+
+def normalize_tag_value(tag):
+    return str(tag or "").strip().lower()
+
+
+def get_system_tag_list(system, create=False):
+    if not isinstance(system, dict):
+        return []
+    existing = system.get("custom_tags")
+    if not isinstance(existing, list):
+        if not create:
+            return []
+        existing = []
+        system["custom_tags"] = existing
+
+    normalized = []
+    seen = set()
+    for raw in existing:
+        cleaned = normalize_tag_value(raw)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+
+    if create:
+        system["custom_tags"] = normalized
+    return normalized
+
+
+def get_available_tags_for_system(system):
+    available = []
+    seen = set()
+    for raw in COMMON_TAG_PRESETS + get_system_tag_list(system, create=False):
+        cleaned = normalize_tag_value(raw)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        available.append(cleaned)
+    return available
+
+
+def add_custom_tags_to_system(system, tags):
+    custom = get_system_tag_list(system, create=True)
+    common = set(COMMON_TAG_PRESETS)
+    changed = False
+    for raw in tags or []:
+        cleaned = normalize_tag_value(raw)
+        if not cleaned or cleaned in common or cleaned in custom:
+            continue
+        custom.append(cleaned)
+        changed = True
+    if changed:
+        system["custom_tags"] = custom
+    return changed
+
 def get_system_profile(system):
     """Return and initialize system profile card data."""
     profile = system.setdefault("system_profile", {})
@@ -1651,19 +1743,19 @@ def resolve_target_system_for_view(requester_user_id, target_user_id_raw=None):
         target_user_id = str(requester_user_id)
         system_id = get_user_system_id(target_user_id)
         if not system_id:
-            return None, None, None, "You do not have a registered system. Use /register."
+            return None, None, None, with_instance_label("You do not have a registered system. Use /register.")
     else:
         parsed = parse_discord_user_id(target_user_id_raw)
         if not parsed:
-            return None, None, None, "Invalid target user ID. Use a numeric Discord ID or mention."
+            return None, None, None, with_instance_label("Invalid target user ID. Use a numeric Discord ID or mention.")
         target_user_id = parsed
         system_id = get_user_system_id(target_user_id)
         if not system_id:
-            return None, None, None, "Target user does not have a registered system."
+            return None, None, None, with_instance_label("Target user does not have a registered system.")
 
     system = systems_data.get("systems", {}).get(system_id)
     if not system:
-        return None, None, None, "System not found."
+        return None, None, None, with_instance_label("System not found.")
 
     return system_id, system, target_user_id, None
 
@@ -1770,9 +1862,33 @@ def _fetch_pluralkit_members_sync(token: str):
         return data
 
 
+def _fetch_pluralkit_system_sync(token: str):
+    """Fetch system details for the authenticated PluralKit system."""
+    request = urllib.request.Request(
+        "https://api.pluralkit.me/v2/systems/@me",
+        headers={
+            "Authorization": token,
+            "User-Agent": "CortexBot/1.0 (+importpluralkit)"
+        },
+        method="GET",
+    )
+
+    with urllib.request.urlopen(request, timeout=20) as response:
+        payload = response.read().decode("utf-8")
+        data = json.loads(payload)
+        if not isinstance(data, dict):
+            raise ValueError("Unexpected PluralKit system response format.")
+        return data
+
+
 async def fetch_pluralkit_members(token: str):
     """Async wrapper for PluralKit member fetch."""
     return await asyncio.to_thread(_fetch_pluralkit_members_sync, token)
+
+
+async def fetch_pluralkit_system(token: str):
+    """Async wrapper for PluralKit system fetch."""
+    return await asyncio.to_thread(_fetch_pluralkit_system_sync, token)
 
 
 def normalize_proxy_formats(proxy_formats):
@@ -2131,6 +2247,59 @@ async def get_or_create_proxy_webhook(channel):
     if webhook is None:
         webhook = await base_channel.create_webhook(name=PROXY_WEBHOOK_NAME)
     return webhook
+
+
+def remember_proxied_message_origin(proxied_message, source_message, sender_user_id, system_id, scope_id, member_data):
+    """Store lightweight origin metadata for a proxied webhook message."""
+    if proxied_message is None:
+        return
+
+    message_id = int(proxied_message.id)
+    PROXY_MESSAGE_AUDIT[message_id] = {
+        "proxied_message_id": message_id,
+        "proxied_channel_id": int(proxied_message.channel.id),
+        "source_message_id": int(source_message.id) if source_message else None,
+        "sender_user_id": int(sender_user_id),
+        "system_id": str(system_id) if system_id is not None else None,
+        "scope_id": str(scope_id) if scope_id is not None else None,
+        "member_id": str(member_data.get("id")) if isinstance(member_data, dict) and member_data.get("id") is not None else None,
+        "member_name": (member_data.get("name") if isinstance(member_data, dict) else None) or "Unknown",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if len(PROXY_MESSAGE_AUDIT) > MAX_PROXY_AUDIT_ENTRIES:
+        oldest_key = next(iter(PROXY_MESSAGE_AUDIT))
+        PROXY_MESSAGE_AUDIT.pop(oldest_key, None)
+
+
+async def send_proxy_origin_dm(reactor_user, audit_entry):
+    """DM a user with proxy origin info while respecting member privacy."""
+    sender_user_id = int(audit_entry.get("sender_user_id"))
+    sender_mention = f"<@{sender_user_id}>"
+
+    lines = [
+        "You requested origin info for a proxied message.",
+        f"Sender account: {sender_mention} (ID `{sender_user_id}`)",
+    ]
+
+    system_id = audit_entry.get("system_id")
+    scope_id = audit_entry.get("scope_id")
+    member_id = audit_entry.get("member_id")
+    member_name = audit_entry.get("member_name") or "Unknown"
+
+    system = systems_data.get("systems", {}).get(str(system_id)) if system_id else None
+    member = None
+    if system and member_id:
+        resolved_scope = None if scope_id in {None, "", "None"} else scope_id
+        member = get_member_from_scope(system, resolved_scope, member_id)
+
+    if system and member and can_view_member_data(system, member, reactor_user.id):
+        display_name = member.get("name", member_name)
+        lines.append(f"Proxied member: **{display_name}** (ID `{member_id}` in {get_scope_label(scope_id if scope_id not in {None, '', 'None'} else None)})")
+    elif system and member:
+        lines.append("Proxied member: hidden by privacy settings.")
+
+    await reactor_user.send("\n".join(lines))
 
 @tree.command(name="register", description="Register as a system or singlet profile")
 @app_commands.choices(mode=[
@@ -2892,26 +3061,8 @@ else:
     members = {}
 
 # -----------------------------
-# Load or create tags file
+# Tags are per-system with built-in common presets
 # -----------------------------
-if not os.path.exists(TAGS_FILE):
-    _gh_tags, _ = _github_get_file(TAGS_FILE)
-    if _gh_tags:
-        PRESET_TAGS = _gh_tags
-        with open(TAGS_FILE, "w") as f:
-            json.dump(PRESET_TAGS, f, indent=4)
-    else:
-        PRESET_TAGS = []
-        with open(TAGS_FILE, "w") as f:
-            json.dump(PRESET_TAGS, f, indent=4)
-else:
-    with open(TAGS_FILE, "r") as f:
-        PRESET_TAGS = json.load(f)
-
-def save_tags():
-    with open(TAGS_FILE, "w") as f:
-        json.dump(PRESET_TAGS, f, indent=4)
-    _github_save_file(TAGS_FILE, PRESET_TAGS)
 
 def save_members():
     with open(JSON_FILE, "w") as f:
@@ -3019,9 +3170,18 @@ async def subsystem_id_autocomplete(interaction: discord.Interaction, current: s
 
 async def tag_autocomplete(interaction: discord.Interaction, current: str):
     try:
+        user_id = interaction.user.id
+        system_id = get_user_system_id(user_id)
+        if not system_id:
+            return []
+        system = systems_data.get("systems", {}).get(system_id)
+        if not system:
+            return []
+
         options = []
-        for tag in PRESET_TAGS:
-            if current.lower() in tag.lower():
+        query = (current or "").lower()
+        for tag in get_available_tags_for_system(system):
+            if query in tag.lower():
                 options.append(app_commands.Choice(name=tag, value=tag))
             if len(options) >= 25:
                 break
@@ -3033,10 +3193,10 @@ async def tag_autocomplete(interaction: discord.Interaction, current: str):
 # Tag selection views
 # -----------------------------
 class TagSelect(discord.ui.Select):
-    def __init__(self, preselected=None):
+    def __init__(self, available_tags, preselected=None):
         options = [
             discord.SelectOption(label=tag, value=tag, default=(tag in preselected if preselected else False))
-            for tag in PRESET_TAGS
+            for tag in available_tags
         ][:25]
         super().__init__(
             placeholder="Select tags (up to 25 shown)...",
@@ -3058,16 +3218,17 @@ class ConfirmTags(discord.ui.Button):
         await interaction.response.defer()
 
 class TagView(discord.ui.View):
-    def __init__(self, preselected=None):
+    def __init__(self, available_tags, preselected=None):
         super().__init__(timeout=120)
         self.selected_tags = preselected or []
-        if PRESET_TAGS:
-            self.add_item(TagSelect(preselected))
+        if available_tags:
+            self.add_item(TagSelect(available_tags, preselected))
         self.add_item(ConfirmTags())
 
 class TagMultiSelect(discord.ui.Select):
-    def __init__(self):
-        options = [discord.SelectOption(label=tag, value=tag) for tag in PRESET_TAGS[:25]]
+    def __init__(self, available_tags, members_dict):
+        self.members_dict = members_dict
+        options = [discord.SelectOption(label=tag, value=tag) for tag in available_tags[:25]]
         super().__init__(
             placeholder="Select one or more tags (up to 25 shown)...",
             min_values=1,
@@ -3077,7 +3238,7 @@ class TagMultiSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         tag_list = self.values
-        filtered = [m for m in members.values() if all(t in m.get("tags", []) for t in tag_list)]
+        filtered = [m for m in self.members_dict.values() if all(t in m.get("tags", []) for t in tag_list)]
         if not filtered:
             desc = "No members match all selected tags."
         else:
@@ -3086,10 +3247,10 @@ class TagMultiSelect(discord.ui.Select):
         await interaction.response.edit_message(embed=embed, view=self.view)
 
 class TagMultiView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, available_tags, members_dict):
         super().__init__(timeout=None)
-        if PRESET_TAGS:
-            self.add_item(TagMultiSelect())
+        if available_tags:
+            self.add_item(TagMultiSelect(available_tags, members_dict))
 # -----------------------------
 # Fronting helpers (unified)
 # -----------------------------
@@ -3329,17 +3490,17 @@ async def addmember(
     if not color_hex:
         color_hex = "%06x" % random.randint(0, 0xFFFFFF)
 
+    available_tags = get_available_tags_for_system(systems_data.get("systems", {}).get(system_id, {}))
+
     # Show interactive tag selector
-    view = TagView()
+    view = TagView(available_tags)
     await interaction.response.send_message("Select tags then press Confirm.", view=view, ephemeral=True)
     await view.wait()
     tags_list = view.selected_tags
 
-    # Save new tags if any
-    for tag in tags_list:
-        if tag not in PRESET_TAGS:
-            PRESET_TAGS.append(tag)
-    save_tags()
+    # Save any custom tags selected by user that are outside common presets.
+    system = systems_data.get("systems", {}).get(system_id, {})
+    add_custom_tags_to_system(system, tags_list)
 
     member_id = get_next_system_member_id(system_id)
     members[member_id] = {
@@ -3422,6 +3583,11 @@ async def importpluralkit(
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
 
+    system = systems_data.get("systems", {}).get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
+        return
+
     members = get_system_members(system_id, subsystem_id)
     if members is None:
         await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
@@ -3435,6 +3601,7 @@ async def importpluralkit(
         return
 
     try:
+        pk_system = await fetch_pluralkit_system(token_value)
         pk_members = await fetch_pluralkit_members(token_value)
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
@@ -3454,6 +3621,10 @@ async def importpluralkit(
         return
 
     members_working = deepcopy(members) if dry_run else members
+    imported_system_tag = (pk_system.get("tag") or "").strip() or None
+
+    if not dry_run and imported_system_tag:
+        system["system_tag"] = imported_system_tag
 
     existing_by_pk_id = {}
     existing_by_key = {}
@@ -3548,9 +3719,16 @@ async def importpluralkit(
 
     scope_label = get_scope_label(subsystem_id)
     mode_label = "Dry Run (no changes saved)" if dry_run else "Import Complete"
+    if imported_system_tag:
+        system_tag_text = (
+            f"Would set to **{imported_system_tag}**" if dry_run else f"Set to **{imported_system_tag}**"
+        )
+    else:
+        system_tag_text = "No PluralKit system tag found; existing Cortex system tag left unchanged."
     await interaction.followup.send(
         f"**{mode_label}**\n"
         f"Target: {scope_label}\n"
+        f"System tag: {system_tag_text}\n"
         f"PluralKit members scanned: **{len(pk_members)}**\n"
         f"Imported new: **{imported_count}**\n"
         f"Updated existing: **{updated_count}**\n"
@@ -5556,11 +5734,13 @@ async def browsetags(interaction: discord.Interaction, subsystem_id: str = None)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
-    if not PRESET_TAGS:
+    system = systems_data.get("systems", {}).get(system_id, {})
+    available_tags = get_available_tags_for_system(system)
+    if not available_tags:
         await interaction.response.send_message("No tags exist yet.", ephemeral=True)
         return
     embed = discord.Embed(title="Tag Browser", description="Select one or more tags from the dropdown.", color=discord.Color.blue())
-    await interaction.response.send_message(embed=embed, view=TagMultiView())
+    await interaction.response.send_message(embed=embed, view=TagMultiView(available_tags, members_dict))
 # -----------------------------
 # View member
 # -----------------------------
@@ -5710,11 +5890,14 @@ async def editmember(
         updated_fields.append(f"proxy tag set to {render_member_proxy_result(member)}")
 
     if edit_tags:
-        view = TagView(preselected=member.get("tags", []))
+        system = systems_data.get("systems", {}).get(system_id, {})
+        available_tags = get_available_tags_for_system(system)
+        view = TagView(available_tags, preselected=member.get("tags", []))
         await interaction.response.send_message("Select tags then press Confirm.", view=view)
         timed_out = await view.wait()
         if not timed_out:
             member["tags"] = view.selected_tags
+            add_custom_tags_to_system(system, member.get("tags", []))
             save_systems()
             updated_fields.append("tags")
             summary = ", ".join(updated_fields) if updated_fields else "no fields"
@@ -6422,14 +6605,23 @@ async def addtag(interaction: discord.Interaction, tag: str):
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    tag = tag.strip().lower()
+    system = systems_data.get("systems", {}).get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
+        return
 
-    if tag in PRESET_TAGS:
+    tag = normalize_tag_value(tag)
+    if not tag:
+        await interaction.response.send_message("Tag cannot be blank.", ephemeral=True)
+        return
+
+    available = set(get_available_tags_for_system(system))
+    if tag in available:
         await interaction.response.send_message("That tag already exists.", ephemeral=True)
         return
 
-    PRESET_TAGS.append(tag)
-    save_tags()
+    add_custom_tags_to_system(system, [tag])
+    save_systems()
 
     await interaction.response.send_message(f"Tag `{tag}` added.")
 
@@ -6444,11 +6636,28 @@ async def listtags(interaction: discord.Interaction):
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    if not PRESET_TAGS:
+    system = systems_data.get("systems", {}).get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
+        return
+
+    common_tags = sorted(set(COMMON_TAG_PRESETS))
+    custom_tags = sorted(set(get_system_tag_list(system, create=False)))
+    if not common_tags and not custom_tags:
         await interaction.response.send_message("No tags exist.")
         return
 
-    tag_lines = "\n".join([f"• {tag}" for tag in sorted(PRESET_TAGS, key=lambda x: x.lower())])
+    sections = []
+    if common_tags:
+        sections.append("**Common Presets**")
+        sections.extend([f"• {tag}" for tag in common_tags])
+    if custom_tags:
+        if sections:
+            sections.append("")
+        sections.append("**Your Custom Tags**")
+        sections.extend([f"• {tag}" for tag in custom_tags])
+
+    tag_lines = "\n".join(sections)
 
     embed = discord.Embed(
         title="System Tags",
@@ -6517,14 +6726,27 @@ async def removetag(interaction: discord.Interaction, tag: str):
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    tag = tag.strip().lower()
+    system = systems_data.get("systems", {}).get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
+        return
 
-    if tag not in PRESET_TAGS:
+    tag = normalize_tag_value(tag)
+    if not tag:
+        await interaction.response.send_message("Tag cannot be blank.", ephemeral=True)
+        return
+
+    if tag in set(COMMON_TAG_PRESETS):
+        await interaction.response.send_message("Common preset tags cannot be removed. Remove it from members instead.", ephemeral=True)
+        return
+
+    custom_tags = get_system_tag_list(system, create=True)
+    if tag not in custom_tags:
         await interaction.response.send_message("Tag not found.", ephemeral=True)
         return
 
     async def do_remove(interaction: discord.Interaction):
-        PRESET_TAGS.remove(tag)
+        system["custom_tags"] = [t for t in get_system_tag_list(system, create=True) if t != tag]
         # Remove tag from all members across all subsystems in user's system
         if system_id in systems_data["systems"]:
             system = systems_data["systems"][system_id]
@@ -6535,7 +6757,6 @@ async def removetag(interaction: discord.Interaction, tag: str):
                 for member in subsystem["members"].values():
                     if tag in member.get("tags", []):
                         member["tags"].remove(tag)
-        save_tags()
         save_systems()
         await interaction.response.send_message(f"Tag `{tag}` removed.", ephemeral=True)
 
@@ -6914,7 +7135,7 @@ async def clearall(interaction: discord.Interaction, subsystem_id: str = None):
 @tree.command(name="refresh", description="Reload all databases from disk")
 @app_commands.default_permissions(administrator=True)
 async def refresh(interaction: discord.Interaction):
-    global systems_data, PRESET_TAGS
+    global systems_data
 
     if os.path.exists(JSON_FILE):
         with open(JSON_FILE, "r") as f:
@@ -6922,16 +7143,10 @@ async def refresh(interaction: discord.Interaction):
     else:
         systems_data = {"systems": {}}
 
-    if os.path.exists(TAGS_FILE):
-        with open(TAGS_FILE, "r") as f:
-            PRESET_TAGS.clear()
-            PRESET_TAGS.extend(json.load(f))
-    else:
-        PRESET_TAGS.clear()
-
     total_members = sum(len(system.get("members", {})) + sum(len(sub["members"]) for sub in system.get("subsystems", {}).values()) for system in systems_data.get("systems", {}).values())
+    total_custom_tags = sum(len(get_system_tag_list(system, create=True)) for system in systems_data.get("systems", {}).values())
     await interaction.response.send_message(
-        f"Databases refreshed. Loaded **{len(systems_data.get('systems', {}))}** systems with **{total_members}** total members and **{len(PRESET_TAGS)}** tags."
+        f"Databases refreshed. Loaded **{len(systems_data.get('systems', {}))}** systems with **{total_members}** total members and **{total_custom_tags}** custom tags (plus common presets)."
     )
 
 # -----------------------------
@@ -8691,6 +8906,98 @@ async def membergroups_prefix(ctx: commands.Context, member_id: str, subsystem_i
     await ctx.send(embed=embed)
 
 
+@bot.command(name="searchmember", aliases=["sm"])
+async def searchmember_prefix(ctx: commands.Context, query: str = None, subsystem_id: str = None):
+    if not query:
+        await ctx.send("Usage: Cor;searchmember <query> [subsystem_id]")
+        return
+
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register using /register.")
+        return
+
+    system = systems_data.get("systems", {}).get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+
+    scope_token = (subsystem_id or "").strip().lower()
+    search_all_scopes = scope_token == "all"
+
+    if search_all_scopes:
+        member_rows = []
+        for scope_id, scoped_members in iter_system_member_dicts(system):
+            for member in scoped_members.values():
+                member_rows.append((scope_id, member))
+    else:
+        members_dict = get_system_members(system_id, subsystem_id)
+        if members_dict is None:
+            await ctx.send("Subsystem not found.")
+            return
+        member_rows = [(subsystem_id, member) for member in members_dict.values()]
+
+    query_lower = query.strip().lower()
+    if not query_lower:
+        await ctx.send("Provide a name or tag to search.")
+        return
+
+    results = []
+    for scope_id, member in member_rows:
+        name_match = query_lower in str(member.get("name", "")).lower()
+        tag_match = any(query_lower in str(tag).lower() for tag in member.get("tags", []))
+        if name_match or tag_match:
+            results.append((scope_id, member))
+
+    if not results:
+        await ctx.send("No members found.")
+        return
+
+    if len(results) == 1:
+        scope_id, member = results[0]
+        fronting = "Yes" if member.get("current_front") else "No"
+        duration = format_duration(calculate_front_duration(member))
+        co_fronts = ", ".join(member.get("co_fronts", [])) if member.get("co_fronts") else "None"
+
+        embed = discord.Embed(
+            title=member.get("name", "Unknown"),
+            description=member.get("description", "No description."),
+            color=int(member.get("color", "FFFFFF"), 16)
+        )
+
+        embed.add_field(name="Currently Fronting", value=fronting, inline=True)
+        embed.add_field(name="Co-fronts", value=co_fronts, inline=True)
+        embed.add_field(name="Total Front Time", value=duration, inline=False)
+
+        tags = ", ".join(member.get("tags", [])) if member.get("tags") else "None"
+        embed.add_field(name="Tags", value=tags, inline=False)
+        embed.add_field(name="Groups", value=format_member_group_lines(system, member), inline=False)
+        if search_all_scopes:
+            embed.add_field(name="Scope", value=get_scope_label(scope_id), inline=False)
+
+        if member.get("profile_pic"):
+            embed.set_thumbnail(url=member["profile_pic"])
+        if member.get("banner"):
+            embed.set_image(url=member.get("banner"))
+
+        await ctx.send(embed=embed)
+        return
+
+    lines = []
+    for scope_id, member in results:
+        member_tags = ", ".join(member.get("tags", [])) or "None"
+        scope_text = f" | Scope: {get_scope_label(scope_id)}" if search_all_scopes else ""
+        lines.append(f"**{member.get('name', 'Unknown')}** - ID `{member.get('id', 'N/A')}`{scope_text} - Tags: {member_tags}")
+
+    embed = discord.Embed(
+        title=f"Search Results ({len(results)} found)",
+        description="\n".join(lines),
+        color=discord.Color.blue(),
+    )
+    await ctx.send(embed=embed)
+
+
 @bot.command(name="register", aliases=["reg"])
 async def register_prefix(ctx: commands.Context, *, system_name: str = None):
     if not system_name:
@@ -10418,7 +10725,15 @@ async def on_message(message: discord.Message):
     if isinstance(message.channel, discord.Thread):
         send_kwargs["thread"] = message.channel
 
-    await webhook.send(**send_kwargs)
+    proxied_message = await webhook.send(**send_kwargs)
+    remember_proxied_message_origin(
+        proxied_message=proxied_message,
+        source_message=message,
+        sender_user_id=message.author.id,
+        system_id=system_id,
+        scope_id=scope_id_for_latch,
+        member_data=proxy_member,
+    )
 
     # Update latch target only after a successful explicit proxy message.
     if explicit_proxy and latch_update:
@@ -10434,6 +10749,38 @@ async def on_message(message: discord.Message):
         pass
 
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    # Only handle unicode question-mark reactions added by non-bot users.
+    if payload.user_id == bot.user.id:
+        return
+    if getattr(payload.emoji, "id", None) is not None:
+        return
+    if payload.emoji.name not in ORIGIN_LOOKUP_EMOJIS:
+        return
+
+    audit_entry = PROXY_MESSAGE_AUDIT.get(int(payload.message_id))
+    if not audit_entry:
+        return
+
+    # Ensure lookup is for the same proxied message/channel pair.
+    if int(audit_entry.get("proxied_channel_id", 0)) != int(payload.channel_id):
+        return
+
+    reactor_user = bot.get_user(payload.user_id)
+    if reactor_user is None:
+        try:
+            reactor_user = await bot.fetch_user(payload.user_id)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            return
+
+    try:
+        await send_proxy_origin_dm(reactor_user, audit_entry)
+    except (discord.Forbidden, discord.HTTPException):
+        # User likely has DMs disabled; ignore silently.
+        return
 
 
 @bot.event
@@ -10586,7 +10933,15 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     if isinstance(after.channel, discord.Thread):
         send_kwargs["thread"] = after.channel
 
-    await webhook.send(**send_kwargs)
+    proxied_message = await webhook.send(**send_kwargs)
+    remember_proxied_message_origin(
+        proxied_message=proxied_message,
+        source_message=after,
+        sender_user_id=after.author.id,
+        system_id=system_id,
+        scope_id=scope_id_for_latch,
+        member_data=proxy_member,
+    )
 
     if explicit_proxy and latch_update:
         active_autoproxy_settings["latch_scope_id"] = scope_id_for_latch
