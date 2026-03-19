@@ -585,6 +585,134 @@ async def modestats_prefix(ctx: commands.Context, days: str = "30"):
     await ctx.send("\n".join(lines))
 
 
+# -----------------------------
+# Check-ins (prefix)
+# -----------------------------
+@bot.command(name="checkin", aliases=["chk"])
+async def checkin_prefix(ctx: commands.Context, rating: str = None, energy: str = None, *, notes: str = None):
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+
+    if rating is None or energy is None:
+        await ctx.send(
+            "Usage: `Cor;checkin <rating 1-10> <energy>` [notes]\n"
+            "Energy options: very_low, low, medium, high, very_high"
+        )
+        return
+
+    try:
+        rating_value = int(rating)
+    except ValueError:
+        await ctx.send("Rating must be a number between 1 and 10.")
+        return
+
+    if rating_value < 1 or rating_value > 10:
+        await ctx.send("Rating must be between 1 and 10.")
+        return
+
+    normalized_energy = (energy or "").strip().lower().replace("-", "_").replace(" ", "_")
+    energy_aliases = {
+        "verylow": "very_low",
+        "vlow": "very_low",
+        "vlow": "very_low",
+        "very_low": "very_low",
+        "low": "low",
+        "med": "medium",
+        "medium": "medium",
+        "high": "high",
+        "vhigh": "very_high",
+        "veryhigh": "very_high",
+        "very_high": "very_high",
+    }
+    normalized_energy = energy_aliases.get(normalized_energy, normalized_energy)
+    valid_energies = {"very_low", "low", "medium", "high", "very_high"}
+    if normalized_energy not in valid_energies:
+        await ctx.send("Invalid energy level. Use one of: very_low, low, medium, high, very_high.")
+        return
+
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+
+    _, front_member = get_fronting_member_for_user(user_id)
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "rating": rating_value,
+        "energy": normalized_energy,
+        "notes": notes,
+        "front_member_id": front_member.get("id") if front_member else None,
+        "front_member_name": front_member.get("name") if front_member else None,
+    }
+
+    settings = get_checkin_settings(system)
+    settings.setdefault("entries", []).append(entry)
+    if len(settings["entries"]) > 500:
+        settings["entries"] = settings["entries"][-500:]
+
+    save_systems()
+
+    trend_text = get_checkin_trend_text(system)
+    energy_text = normalized_energy.replace("_", " ").title()
+    front_text = front_member.get("name") if front_member else "No active fronter"
+    await ctx.send(
+        f"Check-in logged: **{rating_value}/10**, energy **{energy_text}**.\n"
+        f"Current front: **{front_text}**\n"
+        f"{trend_text}"
+    )
+
+
+@bot.command(name="weeklymoodsummary", aliases=["wms"])
+async def weeklymoodsummary_prefix(ctx: commands.Context, enabled: str = None):
+    parsed = parse_bool_token(enabled)
+    if parsed is None:
+        await ctx.send("Usage: `Cor;weeklymoodsummary <true|false>`")
+        return
+
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+
+    settings = get_checkin_settings(system)
+    settings["weekly_dm_enabled"] = parsed
+    save_systems()
+
+    status = "enabled" if parsed else "disabled"
+    await ctx.send(f"Weekly mood summary DMs are now **{status}**.")
+
+
+@bot.command(name="checkinstatus", aliases=["chs"])
+async def checkinstatus_prefix(ctx: commands.Context):
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+
+    settings = get_checkin_settings(system)
+    trend_text = get_checkin_trend_text(system)
+    weekly_status = "enabled" if settings.get("weekly_dm_enabled", True) else "disabled"
+    await ctx.send(
+        f"Weekly mood summaries: **{weekly_status}**\n"
+        f"{trend_text}"
+    )
+
+
 @bot.command(name="allowexternal", aliases=["aex"])
 async def allowexternal_prefix(ctx: commands.Context, enabled: str):
     parsed = parse_bool_token(enabled)
