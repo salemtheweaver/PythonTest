@@ -4900,13 +4900,31 @@ async def refresh(interaction: discord.Interaction):
 # -----------------------------
 @tree.command(name="synccommands", description="Force sync all commands globally")
 async def synccommands(interaction: discord.Interaction):
-    is_guild_admin = False
-    if interaction.guild is not None and isinstance(interaction.user, discord.Member):
+    is_bot_admin = is_bot_moderator_user(interaction.user.id)
+
+    # interaction.permissions is the most reliable source for slash command invocations.
+    is_guild_admin = bool(
+        interaction.guild is not None
+        and interaction.permissions is not None
+        and interaction.permissions.administrator
+    )
+    if (
+        not is_guild_admin
+        and interaction.guild is not None
+        and isinstance(interaction.user, discord.Member)
+    ):
         is_guild_admin = interaction.user.guild_permissions.administrator
 
-    if not is_bot_moderator_user(interaction.user.id) and not is_guild_admin:
+    if not is_bot_admin and not is_guild_admin:
+        location = "server" if interaction.guild is not None else "DM"
         await interaction.response.send_message(
-            "You do not have permission to use this command.",
+            (
+                "You do not have permission to use this command. "
+                f"Detected: user_id={interaction.user.id}, context={location}, "
+                f"bot_admin={is_bot_admin}, guild_admin={is_guild_admin}. "
+                "Use this command in a server as a Discord administrator, "
+                "or add your user ID to CORTEX_ADMIN_USER_IDS and redeploy."
+            ),
             ephemeral=True,
         )
         return
