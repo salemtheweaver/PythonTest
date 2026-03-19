@@ -127,6 +127,13 @@ def _github_save_file(filename, data_obj, retries=3):
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 resp.read()
             return  # success
+        except urllib.error.HTTPError as e:
+            print(f"[WARN] GitHub save attempt {attempt}/{retries} for {filename} failed: HTTP Error {e.code}: {e.reason}")
+            if attempt < retries:
+                import time
+                # 409 Conflict means stale SHA — wait longer for GitHub to settle
+                delay = 3 * attempt if e.code == 409 else 2 * attempt
+                time.sleep(delay)
         except Exception as e:
             print(f"[WARN] GitHub save attempt {attempt}/{retries} for {filename} failed: {e}")
             if attempt < retries:
