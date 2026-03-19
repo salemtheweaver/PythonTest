@@ -17,7 +17,7 @@ from config import (
     PENDING_TIMEZONE_PROMPTS, SCHEDULED_MESSAGES,
     with_instance_label,
 )
-from data import systems_data, save_systems
+from data import systems_data, save_systems, save_system
 
 from helpers import (
     get_user_system_id,
@@ -1530,9 +1530,9 @@ async def importpluralkit(
                 member_name = raw_pk_member.get("name") or raw_pk_member.get("display_name") or raw_pk_member.get("id") or f"member #{i}"
                 error_samples.append(f"{member_name}: {type(e).__name__}: {e}")
 
-        # Batch save: push to GitHub every BATCH_SIZE members to avoid huge uploads
+        # Batch save: push just this system to GitHub every BATCH_SIZE members
         if not dry_run and i % BATCH_SIZE == 0:
-            save_systems()
+            save_system(system_id)
             await interaction.followup.send(
                 f"Import progress: **{i}/{total}** members processed...",
                 ephemeral=True
@@ -1540,7 +1540,7 @@ async def importpluralkit(
 
     # Final save for any remaining members after the last batch
     if not dry_run:
-        save_systems()
+        save_system(system_id)
 
     scope_label = get_scope_label(subsystem_id)
     mode_label = "Dry Run (no changes saved)" if dry_run else "Import Complete"
