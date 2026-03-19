@@ -4899,8 +4899,18 @@ async def refresh(interaction: discord.Interaction):
 # Sync
 # -----------------------------
 @tree.command(name="synccommands", description="Force sync all commands globally")
-@app_commands.check(ensure_moderator)
 async def synccommands(interaction: discord.Interaction):
+    is_guild_admin = False
+    if interaction.guild is not None and isinstance(interaction.user, discord.Member):
+        is_guild_admin = interaction.user.guild_permissions.administrator
+
+    if not is_bot_moderator_user(interaction.user.id) and not is_guild_admin:
+        await interaction.response.send_message(
+            "You do not have permission to use this command.",
+            ephemeral=True,
+        )
+        return
+
     await interaction.response.defer()
 
     removed_guild_scoped = 0

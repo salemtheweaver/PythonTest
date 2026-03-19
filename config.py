@@ -1,6 +1,7 @@
 # config.py — Constants, environment variables, and bot instance
 
 import os
+import re
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -11,12 +12,28 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN environment variable not set.")
-ADMIN_USER_ID = os.getenv("CORTEX_ADMIN_USER_ID")
-ADMIN_USER_IDS = {
-    token.strip()
-    for token in (os.getenv("CORTEX_ADMIN_USER_IDS") or "").split(",")
-    if token.strip()
-}
+
+def _normalize_discord_id(raw_value: str) -> str | None:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+    digits = "".join(ch for ch in value if ch.isdigit())
+    return digits or None
+
+
+def _parse_admin_user_ids(raw_value: str) -> set[str]:
+    # Accept comma, semicolon, or whitespace separated values, including mention-style inputs.
+    tokens = re.split(r"[;,\s]+", raw_value or "")
+    parsed = set()
+    for token in tokens:
+        user_id = _normalize_discord_id(token)
+        if user_id:
+            parsed.add(user_id)
+    return parsed
+
+
+ADMIN_USER_ID = _normalize_discord_id(os.getenv("CORTEX_ADMIN_USER_ID") or "")
+ADMIN_USER_IDS = _parse_admin_user_ids(os.getenv("CORTEX_ADMIN_USER_IDS") or "")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "salemtheweaver/PythonTest")
 INSTANCE_LABEL = (os.getenv("CORTEX_INSTANCE_LABEL") or "").strip()
