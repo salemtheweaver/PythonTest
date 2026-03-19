@@ -2274,6 +2274,16 @@ async def send_proxy_origin_dm(reactor_user, audit_entry):
     elif system and member:
         lines.append("Proxied member: hidden by privacy settings.")
 
+    # Show the member card when the member privacy is explicitly public.
+    if system and member and get_member_privacy_level(member) == "public":
+        try:
+            embed = build_member_profile_embed(member, system=system)
+            await reactor_user.send("\n".join(lines), embed=embed)
+            return
+        except Exception:
+            # Fall back to text-only DM if embed rendering/sending fails.
+            pass
+
     await reactor_user.send("\n".join(lines))
 
 
