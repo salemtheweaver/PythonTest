@@ -501,7 +501,7 @@ class MultiMemberView(discord.ui.View):
 ])
 async def register(
     interaction: discord.Interaction,
-    system_name: str,
+    system_name: str = None,
     mode: str = "system"
 ):
     user_id = interaction.user.id
@@ -509,12 +509,16 @@ async def register(
         await interaction.response.send_message("You already have a registered profile.", ephemeral=True)
         return
 
+    resolved_system_name = (system_name or "").strip()
+    if not resolved_system_name:
+        resolved_system_name = (interaction.user.display_name or interaction.user.name or "Unnamed").strip()
+
     await interaction.response.defer(ephemeral=True)
 
     # Find next system id
     next_id = str(max([int(sid) for sid in systems_data["systems"].keys()] or [0]) + 1)
     systems_data["systems"][next_id] = {
-        "system_name": system_name,
+        "system_name": resolved_system_name,
         "mode": mode,
         "owner_id": str(user_id),
         "system_privacy": "private",
@@ -569,12 +573,12 @@ async def register(
     save_systems()
     if mode == "singlet":
         await interaction.followup.send(
-            f"Singlet profile **{system_name}** registered! You can now use external messaging and wellness commands.",
+            f"Singlet profile **{resolved_system_name}** registered! You can now use external messaging and wellness commands.",
             ephemeral=True
         )
     else:
         await interaction.followup.send(
-            f"System **{system_name}** registered! You can now add members and subsystems.",
+            f"System **{resolved_system_name}** registered! You can now add members and subsystems.",
             ephemeral=True
         )
 
