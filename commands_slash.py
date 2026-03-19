@@ -1433,8 +1433,10 @@ async def importpluralkit(
     updated_count = 0
     skipped_count = 0
     failed_count = 0
+    total = len(pk_members)
+    BATCH_SIZE = 25  # save every 25 members to keep GitHub pushes small
 
-    for raw_pk_member in pk_members:
+    for i, raw_pk_member in enumerate(pk_members, 1):
         try:
             mapped = map_pluralkit_member_to_cortex(raw_pk_member)
             pk_member_id = mapped.get("pk_member_id")
@@ -1505,6 +1507,15 @@ async def importpluralkit(
         except Exception:
             failed_count += 1
 
+        # Batch save: push to GitHub every BATCH_SIZE members to avoid huge uploads
+        if not dry_run and i % BATCH_SIZE == 0:
+            save_systems()
+            await interaction.followup.send(
+                f"Import progress: **{i}/{total}** members processed...",
+                ephemeral=True
+            )
+
+    # Final save for any remaining members after the last batch
     if not dry_run:
         save_systems()
 
@@ -1520,7 +1531,7 @@ async def importpluralkit(
         f"**{mode_label}**\n"
         f"Target: {scope_label}\n"
         f"System tag: {system_tag_text}\n"
-        f"PluralKit members scanned: **{len(pk_members)}**\n"
+        f"PluralKit members scanned: **{total}**\n"
         f"Imported new: **{imported_count}**\n"
         f"Updated existing: **{updated_count}**\n"
         f"Skipped existing: **{skipped_count}**\n"

@@ -26,28 +26,41 @@ def _github_get_file(filename):
         return None, None
 
 
-def _github_save_file(filename, data_obj):
-    """Save JSON data to GitHub repo."""
+def _github_save_file(filename, data_obj, retries=3):
+    """Save JSON data to GitHub repo with retry logic and compact encoding."""
     if not GITHUB_TOKEN:
         return
-    _, sha = _github_get_file(filename)
-    content = base64.b64encode(json.dumps(data_obj, indent=4).encode("utf-8")).decode("utf-8")
-    body = json.dumps({
-        "message": f"Auto-update {filename}",
-        "content": content,
-        **({"sha": sha} if sha else {}),
-    }).encode("utf-8")
-    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
-    req = urllib.request.Request(url, data=body, method="PUT", headers={
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github.v3+json",
-        "Content-Type": "application/json",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            resp.read()
-    except Exception as e:
-        print(f"[WARN] Failed to push {filename} to GitHub: {e}")
+    # Use separators to minimize JSON size (no extra whitespace)
+    json_bytes = json.dumps(data_obj, separators=(",", ":")).encode("utf-8")
+    encoded = base64.b64encode(json_bytes).decode("utf-8")
+    size_mb = len(json_bytes) / (1024 * 1024)
+    if size_mb > 90:
+        print(f"[WARN] {filename} is {size_mb:.1f}MB — approaching GitHub 100MB limit")
+
+    for attempt in range(1, retries + 1):
+        try:
+            _, sha = _github_get_file(filename)
+            body = json.dumps({
+                "message": f"Auto-update {filename}",
+                "content": encoded,
+                **({"sha": sha} if sha else {}),
+            }).encode("utf-8")
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+            req = urllib.request.Request(url, data=body, method="PUT", headers={
+                "Authorization": f"token {GITHUB_TOKEN}",
+                "Accept": "application/vnd.github.v3+json",
+                "Content-Type": "application/json",
+            })
+            timeout = 30 + int(size_mb * 5)  # scale timeout with file size
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                resp.read()
+            return  # success
+        except Exception as e:
+            print(f"[WARN] GitHub save attempt {attempt}/{retries} for {filename} failed: {e}")
+            if attempt < retries:
+                import time
+                time.sleep(2 * attempt)  # backoff
+    print(f"[ERROR] All {retries} attempts to push {filename} to GitHub failed")
 
 
 # --- Load systems data ---

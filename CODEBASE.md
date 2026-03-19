@@ -28,6 +28,20 @@
 
 ### Changelog
 
+#### [2.1.0] — March 19, 2026
+**Reliability & Import Improvements**
+
+**Changes**:
+- **Batched PluralKit import**: Large imports now save every 25 members with progress updates, preventing GitHub upload timeouts
+- **GitHub save retry logic**: Saves now retry up to 3 times with exponential backoff on failure
+- **Compact JSON encoding**: GitHub-stored JSON uses minimal whitespace to reduce file size
+- **Scaled timeouts**: GitHub upload timeout now scales with file size (30s base + 5s per MB)
+- **Size warnings**: Logs a warning when `cortex_members.json` approaches GitHub's 100MB limit
+- **Duplicate proxy cleanup**: Already-proxied messages from other bots (e.g. PluralKit) are auto-deleted to prevent duplicates
+
+**Bug Fixes**:
+- Autoproxy settings now reliably persist across restarts (GitHub save failures were silently dropping data)
+
 #### [2.0.0] — March 19, 2026
 **Major Refactor: Monolithic to Modular Architecture**
 
