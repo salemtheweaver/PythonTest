@@ -1,6 +1,6 @@
 # Cortex Discord Bot — Codebase Documentation
 
-**Version**: 2.1.3 (Modular Architecture)  
+**Version**: 2.2.0 (Modular Architecture)  
 **Last Updated**: March 19, 2026
 
 ## Table of Contents
@@ -21,12 +21,34 @@
 ## Version Control
 
 ### Current Version
-- **Version**: 2.1.3
+- **Version**: 2.2.0
 - **Release Date**: March 19, 2026
 - **Status**: Stable
 - **Architecture**: Modular (9-file structure)
 
 ### Changelog
+
+#### [2.2.0] — March 19, 2026
+**Multi-Admin, Privacy Tiers & Stability**
+
+**Features Added**:
+- Multi-admin support via `CORTEX_ADMIN_USER_IDS` env var (comma-separated list)
+- Persisted bot-admin user ID list in `_moderation.bot_admin_user_ids` — survives restarts without env vars
+- Four-level privacy model: `private`, `trusted`, `friends`, `public` with exact visibility matrix
+- Friend list management commands: `frienduser`, `unfrienduser`, `friendusers` (slash and prefix)
+- Member card embed shown on `?` reaction for members the viewer has access to
+- Future message time parsing accepts friendly formats: `30mins`, `1h30m`, `1day`, `tomorrow`, etc.
+- Restored missing prefix check-in commands: `Cor;checkin`, `Cor;checkinstatus`, `Cor;weeklymoodsummary`
+- `/synccommands` now respects bot-admin configuration instead of Discord-only admin permission
+- `_moderation` state now always loaded from main data file on startup (previously silently skipped)
+
+**Bug Fixes**:
+- Fixed `SyntaxWarning` in `privacystatus` embed (missing `+` between f-strings)
+- Fixed `Interaction already acknowledged` error in `/synccommands` caused by global check responding first
+- GitHub 409 conflict retries increased to 6 attempts with exponential backoff (2^attempt seconds, capped at 60s)
+- Admin ID parsing now accepts commas, semicolons, spaces, and mention-style tokens
+
+**Breaking Changes**: None
 
 #### [2.1.3] — March 19, 2026
 **Proxy Stability & Register UX**
@@ -135,7 +157,8 @@
 
 | Version | Date | Architecture | Status |
 |---------|------|--------------|--------|
-| 2.1.3 | March 19, 2026 | Modular (9 files) | Current/Stable |
+| 2.2.0 | March 19, 2026 | Modular (9 files) | Current/Stable |
+| 2.1.3 | March 19, 2026 | Modular (9 files) | Stable |
 | 2.1.2 | March 19, 2026 | Modular (9 files) | Stable |
 | 2.1.1 | March 19, 2026 | Modular (9 files) | Stable |
 | 2.1.0 | March 19, 2026 | Modular (9 files) | Stable |
@@ -1482,7 +1505,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 ## Version & Dependency Information
 
-**Current Version**: 2.1.3  
+**Current Version**: 2.2.0  
 **Last Updated**: March 19, 2026  
 **Bot Architecture**: Modular (9-file structure)  
 **Python Version**: 3.8+  
