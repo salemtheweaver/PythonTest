@@ -4882,13 +4882,16 @@ async def clearall(interaction: discord.Interaction, subsystem_id: str = None):
 @tree.command(name="refresh", description="Reload all databases from disk")
 @app_commands.default_permissions(administrator=True)
 async def refresh(interaction: discord.Interaction):
-    global systems_data
-
+    loaded_data = None
     if os.path.exists(JSON_FILE):
         with open(JSON_FILE, "r") as f:
-            systems_data = json.load(f)
+            loaded_data = json.load(f)
     else:
-        systems_data = {"systems": {}}
+        loaded_data = {"systems": {}}
+
+    # Mutate the shared dict in place so every module keeps the same reference.
+    systems_data.clear()
+    systems_data.update(loaded_data)
 
     total_members = sum(len(system.get("members", {})) + sum(len(sub["members"]) for sub in system.get("subsystems", {}).values()) for system in systems_data.get("systems", {}).values())
     total_custom_tags = sum(len(get_system_tag_list(system, create=True)) for system in systems_data.get("systems", {}).values())

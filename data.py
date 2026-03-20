@@ -35,6 +35,9 @@ def _background_github_save_worker():
         for sys_id, sys_data in payload.get("systems", {}).items():
             _github_save_system(sys_id, sys_data)
 
+        # Persist shared moderation/admin state so it survives restarts.
+        _github_save_file(JSON_FILE, payload)
+
 
 def _queue_github_save(data_obj):
     """Queue the latest data snapshot for background GitHub persistence."""
@@ -78,6 +81,7 @@ def flush_pending_save():
         print("[INFO] Flushing pending GitHub saves before shutdown...")
         for sys_id, sys_data in payload.get("systems", {}).items():
             _github_save_system(sys_id, sys_data)
+        _github_save_file(JSON_FILE, payload)
         print("[INFO] Shutdown save complete.")
 
 

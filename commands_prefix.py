@@ -284,8 +284,7 @@ async def help_prefix(ctx: commands.Context):
                 "• Cor;deletesystem\n"
                 "• Cor;clearall [subsystem_id]\n\n"
                 "**Maintenance**\n"
-                "• Cor;refresh\n"
-                "• Cor;synccommands"
+                "• Cor;refresh"
             ),
             "color": discord.Color.dark_red(),
         },
