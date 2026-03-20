@@ -1,3 +1,24 @@
+
+# Delete subsystem command
+@tree.command(name="deletesubsystem", description="Delete a subsystem from your system")
+@app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
+async def deletesubsystem(
+    interaction: discord.Interaction,
+    subsystem_id: str
+):
+    user_id = interaction.user.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+        return
+    system = systems_data["systems"][system_id]
+    subsystems = system.get("subsystems", {})
+    if subsystem_id not in subsystems:
+        await interaction.response.send_message(f"Subsystem `{subsystem_id}` not found.", ephemeral=True)
+        return
+    del subsystems[subsystem_id]
+    save_systems()
+    await interaction.response.send_message(f"Subsystem `{subsystem_id}` deleted.", ephemeral=True)
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -634,26 +655,6 @@ async def createsubsystem(
 @tree.command(name="editsubsystem", description="Edit a subsystem's name")
 async def editsubsystem(
 
-    # Delete subsystem command
-    @tree.command(name="deletesubsystem", description="Delete a subsystem from your system")
-    @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
-    async def deletesubsystem(
-        interaction: discord.Interaction,
-        subsystem_id: str
-    ):
-        user_id = interaction.user.id
-        system_id = get_user_system_id(user_id)
-        if not system_id:
-            await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
-            return
-        system = systems_data["systems"][system_id]
-        subsystems = system.get("subsystems", {})
-        if subsystem_id not in subsystems:
-            await interaction.response.send_message(f"Subsystem `{subsystem_id}` not found.", ephemeral=True)
-            return
-        del subsystems[subsystem_id]
-        save_systems()
-        await interaction.response.send_message(f"Subsystem `{subsystem_id}` deleted.", ephemeral=True)
     interaction: discord.Interaction,
     subsystem_id: str,
     new_name: str
