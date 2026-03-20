@@ -3674,11 +3674,27 @@ async def viewmember(
     await interaction.response.send_message(embed=build_member_profile_embed(member, system=system))
 
 @tree.command(name="random", description="View a random member from your full system")
-async def randommember(interaction: discord.Interaction, target_user_id: str = None):
+@app_commands.choices(privacy_pool=[
+    app_commands.Choice(name="Public", value="public"),
+    app_commands.Choice(name="Friends", value="friends"),
+    app_commands.Choice(name="Trusted", value="trusted"),
+    app_commands.Choice(name="All visible", value="all"),
+])
+async def randommember(
+    interaction: discord.Interaction,
+    target_user_id: str = None,
+    privacy_pool: str = "all",
+):
     requester_id = interaction.user.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
         await interaction.response.send_message(error, ephemeral=True)
+        return
+
+    selected_pool = (privacy_pool or "all").strip().lower()
+    valid_pools = {"public", "friends", "trusted", "all"}
+    if selected_pool not in valid_pools:
+        await interaction.response.send_message("Invalid privacy pool. Choose public, friends, trusted, or all.", ephemeral=True)
         return
 
     candidates = []
@@ -3686,19 +3702,34 @@ async def randommember(interaction: discord.Interaction, target_user_id: str = N
         for member in members_dict.values():
             if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
                 continue
+            if selected_pool != "all" and get_member_privacy_level(member) != selected_pool:
+                continue
             candidates.append((scope_id, member))
 
     if not candidates:
         if str(target_owner_id) == str(requester_id):
-            await interaction.response.send_message("You do not have any members yet.", ephemeral=True)
+            if selected_pool == "all":
+                await interaction.response.send_message("You do not have any members yet.", ephemeral=True)
+            else:
+                await interaction.response.send_message(
+                    f"You do not have any members in the `{selected_pool}` privacy pool.",
+                    ephemeral=True,
+                )
         else:
-            await interaction.response.send_message("No visible members were found for that system.", ephemeral=True)
+            if selected_pool == "all":
+                await interaction.response.send_message("No visible members were found for that system.", ephemeral=True)
+            else:
+                await interaction.response.send_message(
+                    f"No visible members were found in the `{selected_pool}` privacy pool.",
+                    ephemeral=True,
+                )
         return
 
     scope_id, member = random.choice(candidates)
     scope_label = get_scope_label(scope_id)
+    pool_label = "all visible" if selected_pool == "all" else selected_pool
     await interaction.response.send_message(
-        content=f"Random member from {scope_label}:",
+        content=f"Random {pool_label} member from {scope_label}:",
         embed=build_member_profile_embed(member, system=system)
     )
 # -----------------------------
