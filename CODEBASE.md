@@ -1,7 +1,7 @@
 # Cortex Discord Bot — Codebase Documentation
 
-**Version**: 2.2.0 (Modular Architecture)  
-**Last Updated**: March 19, 2026
+**Version**: 2.2.1 (Modular Architecture)  
+**Last Updated**: March 20, 2026
 
 ## Table of Contents
 1. [Version Control](#version-control)
@@ -21,12 +21,29 @@
 ## Version Control
 
 ### Current Version
-- **Version**: 2.2.0
-- **Release Date**: March 19, 2026
+- **Version**: 2.2.1
+- **Release Date**: March 20, 2026
 - **Status**: Stable
 - **Architecture**: Modular (9-file structure)
 
 ### Changelog
+
+#### [2.2.1] — March 20, 2026
+**Member Card Layout & Random Scope Controls**
+
+**Features Added**:
+- `/random` now supports privacy-pool filters (`public`, `friends`, `trusted`, `all`)
+- `Cor;random` now supports the same privacy-pool filters
+- Random commands are now restricted to the caller's own system (no cross-user random browsing)
+
+**Bug Fixes**:
+- Member card formatting now preserves imported PluralKit-style description line breaks
+- Metadata (ID/pronouns/tags/fronting, etc.) moved into dedicated fields to avoid disrupting card text layout
+- Moderation/admin state now persists to GitHub alongside per-system saves
+- `/refresh` now updates the shared in-memory data object in place so modules stay in sync
+- Removed nonexistent `Cor;synccommands` mention from prefix help
+
+**Breaking Changes**: None
 
 #### [2.2.0] — March 19, 2026
 **Multi-Admin, Privacy Tiers & Stability**
@@ -157,7 +174,8 @@
 
 | Version | Date | Architecture | Status |
 |---------|------|--------------|--------|
-| 2.2.0 | March 19, 2026 | Modular (9 files) | Current/Stable |
+| 2.2.1 | March 20, 2026 | Modular (9 files) | Current/Stable |
+| 2.2.0 | March 19, 2026 | Modular (9 files) | Stable |
 | 2.1.3 | March 19, 2026 | Modular (9 files) | Stable |
 | 2.1.2 | March 19, 2026 | Modular (9 files) | Stable |
 | 2.1.1 | March 19, 2026 | Modular (9 files) | Stable |
@@ -1505,8 +1523,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 ## Version & Dependency Information
 
-**Current Version**: 2.2.0  
-**Last Updated**: March 19, 2026  
+**Current Version**: 2.2.1  
+**Last Updated**: March 20, 2026  
 **Bot Architecture**: Modular (9-file structure)  
 **Python Version**: 3.8+  
 **Discord.py**: 2.7.1  
