@@ -137,8 +137,13 @@ def with_instance_label(message: str) -> str:
 
 
 # --- Bot instance setup ---
+
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
+intents.guilds = True
+intents.reactions = True
+intents.presences = True
 
 
 # CortexCommandTree is defined here but its interaction_check references

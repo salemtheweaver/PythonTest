@@ -105,9 +105,12 @@ async def scheduled_messages_loop():
                 if now >= send_at:
                     try:
                         user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
+                        # Debug log for delivery attempt (no message content)
+                        print(f"[DEBUG] Attempting scheduled DM delivery to user {user_id} at {send_at}")
                         await user.send(msg_data["message"])
                         delivered.append(msg_data)
                     except (ValueError, discord.Forbidden, discord.HTTPException):
+                        print(f"[DEBUG] Scheduled DM delivery failed for user {user_id} at {send_at}")
                         pass
                 else:
                     pending.append(msg_data)
