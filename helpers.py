@@ -1295,69 +1295,72 @@ def is_ephemeral_discord_attachment_url(value):
 
 def build_member_profile_embed(member, system=None):
     """Build a member profile embed matching PluralKit-style layout."""
-    DIVIDER = "─" * 30
-
     try:
         embed_color = int(str(member.get("color", "FFFFFF")).lstrip("#"), 16)
     except (TypeError, ValueError):
         embed_color = int("00DE9B", 16)
 
-    # --- Title: name + display name ---
-    display_name = member.get("display_name")
+    def _truncate(text, limit):
+        text = str(text or "").strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit - 3].rstrip() + "..."
+
+    display_name = str(member.get("display_name") or "").strip() or None
     title = member["name"]
 
-    # --- Description: build sections separated by dividers ---
-    sections = []
+    bio_text = str(member.get("description") or "").strip()
+    if bio_text:
+        bio_text = _truncate(bio_text, 4000)
 
-    # Section 1: Basic info
-    if display_name:
-        sections.append(f"**Display name:** {display_name}")
+    embed = discord.Embed(
+        title=title,
+        description=bio_text or None,
+        color=embed_color
+    )
+
+    if display_name and display_name != title:
+        embed.set_author(name=display_name)
+
     info_lines = [f"**ID:** {member['id']}"]
     pronouns = member.get("pronouns")
     if pronouns:
-        info_lines.append(f"**Pronouns:** {pronouns}")
+        info_lines.append(f"**Pronouns:** {_truncate(pronouns, 250)}")
     birthday = member.get("birthday")
     if birthday:
         info_lines.append(f"**Birthday:** {birthday}")
+    if display_name and display_name != title:
+        info_lines.append(f"**Display name:** {_truncate(display_name, 250)}")
     tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
     if tags:
-        info_lines.append(f"**Tags:** {tags}")
+        info_lines.append(f"**Tags:** {_truncate(tags, 250)}")
     playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
     if playlist_text:
         info_lines.append(f"**Playlist:** {playlist_text}")
     fronting = "Yes" if member.get("fronting") else "No"
     info_lines.append(f"**Currently Fronting:** {fronting}")
-    sections.append("\n".join(info_lines))
+    embed.add_field(
+        name="Info",
+        value=_truncate("\n".join(info_lines), 1024) or "No additional info.",
+        inline=False,
+    )
 
-    # Section 2: Proxy tags
     proxy_text = render_member_proxy_result(member)
     if proxy_text and proxy_text != "Not set":
-        sections.append(f"**Proxy tags:**\n`{proxy_text}`")
+        embed.add_field(
+            name="Proxy Tags",
+            value=f"`{_truncate(proxy_text, 1000)}`",
+            inline=False,
+        )
 
-    # Section 3: Groups
     if system is not None:
         groups_text = format_member_group_lines(system, member)
         if groups_text and groups_text != "None":
-            if len(groups_text) > 600:
-                groups_text = groups_text[:597] + "..."
-            sections.append(f"**Groups:**\n{groups_text}")
-
-    # Section 4: About/bio
-    bio_text = str(member.get("description") or "").strip()
-    if bio_text:
-        if len(bio_text) > 1000:
-            bio_text = bio_text[:997] + "..."
-        sections.append(f"**About**\n{bio_text}")
-
-    full_description = f"\n{DIVIDER}\n".join(sections)
-    if len(full_description) > 4000:
-        full_description = full_description[:3997] + "..."
-
-    embed = discord.Embed(
-        title=title,
-        description=full_description,
-        color=embed_color
-    )
+            embed.add_field(
+                name="Groups",
+                value=_truncate(groups_text, 1024),
+                inline=False,
+            )
 
     profile_pic_url = normalize_embed_image_url(member.get("profile_pic"))
     if profile_pic_url:
