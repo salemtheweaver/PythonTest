@@ -2055,24 +2055,88 @@ def find_tagged_proxy_member(system, content):
     """Find the best matching member proxy tag and return (scope_id, member, stripped_text)."""
     best_match = None
 
+    def _normalize_proxy_tag_text(text: str) -> str:
+        # Ignore emoji presentation/joiner characters so equivalent emoji tags still match.
+        return "".join(ch for ch in (text or "") if ch not in {"\ufe0e", "\ufe0f", "\u200d"})
+
+    def _match_prefix_end_index(text: str, prefix: str):
+        if not prefix:
+            return 0
+        if text.startswith(prefix):
+            return len(prefix)
+
+        # Support case-insensitive matching for text-like prefixes.
+        if any(ch.isalpha() for ch in prefix) and text[:len(prefix)].casefold() == prefix.casefold():
+            return len(prefix)
+
+        normalized_prefix = _normalize_proxy_tag_text(prefix)
+        if not normalized_prefix:
+            return 0
+
+        consumed = []
+        index = 0
+        for ch in text:
+            index += 1
+            if ch in {"\ufe0e", "\ufe0f", "\u200d"}:
+                continue
+            consumed.append(ch)
+            consumed_len = len(consumed)
+            if normalized_prefix[:consumed_len] != "".join(consumed):
+                return None
+            if consumed_len == len(normalized_prefix):
+                return index
+        return None
+
+    def _match_suffix_start_index(text: str, suffix: str):
+        if not suffix:
+            return len(text)
+        if text.endswith(suffix):
+            return len(text) - len(suffix)
+
+        # Support case-insensitive matching for text-like suffixes.
+        if any(ch.isalpha() for ch in suffix) and text[-len(suffix):].casefold() == suffix.casefold():
+            return len(text) - len(suffix)
+
+        normalized_suffix = _normalize_proxy_tag_text(suffix)
+        if not normalized_suffix:
+            return len(text)
+
+        i = len(text) - 1
+        j = len(normalized_suffix) - 1
+        start = len(text)
+        while i >= 0 and j >= 0:
+            ch = text[i]
+            if ch in {"\ufe0e", "\ufe0f", "\u200d"}:
+                i -= 1
+                continue
+            if ch != normalized_suffix[j]:
+                return None
+            start = i
+            i -= 1
+            j -= 1
+
+        if j >= 0:
+            return None
+        return start
+
     for scope_id, members_dict in iter_system_member_dicts(system):
         for member_data in members_dict.values():
             for proxy_format in get_member_proxy_formats(member_data):
                 prefix = proxy_format.get("prefix") or ""
                 suffix = proxy_format.get("suffix") or ""
-                if prefix and not content.startswith(prefix):
+                prefix_end = _match_prefix_end_index(content, prefix)
+                if prefix_end is None:
                     continue
-                if suffix and not content.endswith(suffix):
+                suffix_start = _match_suffix_start_index(content, suffix)
+                if suffix_start is None:
+                    continue
+                if suffix_start < prefix_end:
                     continue
 
-                end_index = len(content) - len(suffix) if suffix else len(content)
-                if end_index < len(prefix):
-                    continue
-
-                match_len = len(prefix) + len(suffix)
+                match_len = len(_normalize_proxy_tag_text(prefix)) + len(_normalize_proxy_tag_text(suffix))
                 # Prefer the most specific (longest) tag format to avoid collisions.
                 if best_match is None or match_len > best_match[0]:
-                    stripped = content[len(prefix):end_index].strip()
+                    stripped = content[prefix_end:suffix_start].strip()
                     best_match = (match_len, scope_id, member_data, stripped)
 
     if best_match is None:

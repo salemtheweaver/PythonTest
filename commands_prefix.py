@@ -809,7 +809,7 @@ async def switchmember_prefix(ctx: commands.Context, member_id: str, subsystem_i
     await ctx.send(response)
 
 
-@bot.command(name="cofrontmember", aliases=["cfm"])
+@bot.command(name="cofrontmember", aliases=["cfm", "cofrontmembers"])
 async def cofrontmember_prefix(
     ctx: commands.Context,
     member_id: str = None,

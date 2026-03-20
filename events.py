@@ -31,8 +31,8 @@ _PROXY_DEDUP_WINDOW_SECONDS = 5
 _recent_processed_source_ids = {}
 
 
-def _mark_source_message_processed(message_id: int) -> bool:
-    """Return True if this source message was processed recently, else mark it now."""
+def _mark_source_message_processed(message_id: int, source: str = "message") -> bool:
+    """Return True if this source message/event pair was processed recently, else mark it now."""
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=_PROXY_DEDUP_WINDOW_SECONDS)
 
@@ -40,11 +40,12 @@ def _mark_source_message_processed(message_id: int) -> bool:
     for mid in stale_ids:
         _recent_processed_source_ids.pop(mid, None)
 
-    previous = _recent_processed_source_ids.get(message_id)
+    dedupe_key = (str(source), int(message_id))
+    previous = _recent_processed_source_ids.get(dedupe_key)
     if previous and previous >= cutoff:
         return True
 
-    _recent_processed_source_ids[message_id] = now
+    _recent_processed_source_ids[dedupe_key] = now
     return False
 
 
@@ -99,7 +100,7 @@ async def on_message(message: discord.Message):
         return
 
     # Prevent accidental double-processing of the same source message.
-    if _mark_source_message_processed(message.id):
+    if _mark_source_message_processed(message.id, source="message"):
         return
 
     pending_until = PENDING_TIMEZONE_PROMPTS.get(message.author.id)
@@ -415,7 +416,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
         return
 
     # Prevent accidental double-processing of the same edited source message.
-    if _mark_source_message_processed(after.id):
+    if _mark_source_message_processed(after.id, source="edit"):
         return
 
     # Never proxy the starter post of a forum thread, even after edits.
