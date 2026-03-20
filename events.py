@@ -148,8 +148,6 @@ async def on_message(message: discord.Message):
             await message.channel.send(f"Timezone set to **{normalized}**.")
             return
 
-    # Debug logging for proxy bypass
-    print(f"[DEBUG] Received message: '{message.content}' from {message.author} (ID: {message.author.id})")
     # If message starts with a backslash, do not proxy (bypass all proxy logic)
     if message.content.startswith("\\"):
         print(f"[DEBUG] Proxy bypass triggered for message: '{message.content}'")
@@ -386,8 +384,6 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     if not audit_entry:
         return
     # Targeted debug log for X emoji reactions
-    if payload.emoji.name in {"❌", "✖️", "x", "X"}:
-        print(f"[DEBUG] X emoji reaction detected for message {payload.message_id} by user {payload.user_id}. Audit entry: {audit_entry}")
 
     # Ensure lookup is for the same proxied message/channel pair.
     if int(audit_entry.get("proxied_channel_id", 0)) != int(payload.channel_id):
