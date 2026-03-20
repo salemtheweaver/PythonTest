@@ -84,6 +84,7 @@ SINGLET_ALLOWED_COMMANDS = {
     "settimezone", "timezonestatus", "refresh", "synccommands",
     "reportexternal", "setmode", "currentmode", "modestats",
     "systemprivacy", "alterprivacy", "privacystatus", "sendmessage",
+    "members",
 }
 
 PROFILE_PRIVACY_LEVELS = {"private", "trusted", "friends", "public"}
