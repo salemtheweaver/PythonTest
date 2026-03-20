@@ -1,4 +1,5 @@
 
+
 # Delete subsystem command
 @tree.command(name="deletesubsystem", description="Delete a subsystem from your system")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
