@@ -575,103 +575,6 @@ def build_group_order_embed(system, order, focus_index):
     return embed
 
 
-class GroupOrderView(discord.ui.View):
-    def __init__(self, owner_id, system):
-        super().__init__(timeout=180)
-        self.owner_id = owner_id
-        self.system = system
-        settings = get_group_settings(system)
-        groups = settings.get("groups", {})
-        self.order = [gid for gid in settings.get("order", []) if gid in groups]
-        self.focus_index = 0
-        self._update_button_state()
-
-    def _update_button_state(self):
-        no_groups = len(self.order) == 0
-        at_top = self.focus_index <= 0
-        at_bottom = self.focus_index >= len(self.order) - 1
-
-        self.focus_up_button.disabled = no_groups or at_top
-        self.focus_down_button.disabled = no_groups or at_bottom
-        self.move_up_button.disabled = no_groups or at_top
-        self.move_down_button.disabled = no_groups or at_bottom
-        self.save_button.disabled = no_groups
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message("Only the command author can use this UI.", ephemeral=True)
-            return False
-        return True
-
-    def current_embed(self):
-        return build_group_order_embed(self.system, self.order, self.focus_index)
-
-    async def on_timeout(self):
-        self.focus_up_button.disabled = True
-        self.focus_down_button.disabled = True
-        self.move_up_button.disabled = True
-        self.move_down_button.disabled = True
-        self.save_button.disabled = True
-        self.cancel_button.disabled = True
-
-    @discord.ui.button(label="Focus Up", style=discord.ButtonStyle.secondary)
-    async def focus_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.focus_index > 0:
-            self.focus_index -= 1
-        self._update_button_state()
-        await interaction.response.edit_message(embed=self.current_embed(), view=self)
-
-    @discord.ui.button(label="Focus Down", style=discord.ButtonStyle.secondary)
-    async def focus_down_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.focus_index < len(self.order) - 1:
-            self.focus_index += 1
-        self._update_button_state()
-        await interaction.response.edit_message(embed=self.current_embed(), view=self)
-
-    @discord.ui.button(label="Move Up", style=discord.ButtonStyle.primary)
-    async def move_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.focus_index > 0:
-            i = self.focus_index
-            self.order[i - 1], self.order[i] = self.order[i], self.order[i - 1]
-            self.focus_index -= 1
-        self._update_button_state()
-        await interaction.response.edit_message(embed=self.current_embed(), view=self)
-
-    @discord.ui.button(label="Move Down", style=discord.ButtonStyle.primary)
-    async def move_down_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.focus_index < len(self.order) - 1:
-            i = self.focus_index
-            self.order[i + 1], self.order[i] = self.order[i], self.order[i + 1]
-            self.focus_index += 1
-        self._update_button_state()
-        await interaction.response.edit_message(embed=self.current_embed(), view=self)
-
-    @discord.ui.button(label="Save", style=discord.ButtonStyle.success)
-    async def save_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        settings = get_group_settings(self.system)
-        groups = settings.get("groups", {})
-
-        # Keep any newly created groups not shown in this session appended at the end.
-        seen = set(self.order)
-        merged_order = [gid for gid in self.order if gid in groups]
-        for gid in settings.get("order", []):
-            if gid in groups and gid not in seen:
-                merged_order.append(gid)
-        for gid in groups.keys():
-            if gid not in seen and gid not in merged_order:
-                merged_order.append(gid)
-
-        settings["order"] = merged_order
-        save_systems()
-        await interaction.response.edit_message(content="Group order saved.", embed=None, view=None)
-        self.stop()
-
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
-    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="Group order edit cancelled.", embed=None, view=None)
-        self.stop()
-
-
 # ---------------------------------------------------------------------------
 # Member ID helpers
 # ---------------------------------------------------------------------------
@@ -2384,7 +2287,11 @@ def remember_proxied_message_origin(proxied_message, source_message, sender_user
 
 async def send_proxy_origin_dm(reactor_user, audit_entry):
     """DM a user with proxy origin info while respecting member privacy."""
-    sender_user_id = int(audit_entry.get("sender_user_id"))
+    raw_sender_id = audit_entry.get("sender_user_id")
+    if raw_sender_id is None:
+        await reactor_user.send("Origin info is unavailable for this message.")
+        return
+    sender_user_id = int(raw_sender_id)
     sender_mention = f"<@{sender_user_id}>"
 
     lines = [
@@ -2451,13 +2358,26 @@ async def member_name_autocomplete(interaction: discord.Interaction, current: st
         return []
 
 async def member_id_autocomplete(interaction: discord.Interaction, current: str):
-    options = []
-    for m in members.values():
-        if current in str(m["id"]):
-            options.append(app_commands.Choice(name=f"{m['name']} ({m['id']})", value=str(m["id"])))
-        if len(options) >= 25:
-            break
-    return options
+    try:
+        user_id = interaction.user.id
+        system_id = get_user_system_id(user_id)
+        if not system_id:
+            return []
+        subsystem_id = interaction.namespace.subsystem_id if hasattr(interaction.namespace, "subsystem_id") else None
+        members_dict = get_system_members(system_id, subsystem_id)
+        if not members_dict:
+            return []
+        options = []
+        query = (current or "").lower()
+        for member_id, member_data in members_dict.items():
+            member_name = member_data.get("name", "")
+            if query in member_id.lower() or query in member_name.lower():
+                options.append(app_commands.Choice(name=f"{member_name} ({member_id})", value=member_id))
+            if len(options) >= 25:
+                break
+        return options
+    except Exception:
+        return []
 
 async def switchmember_member_id_autocomplete(interaction: discord.Interaction, current: str):
     """Autocomplete for switchmember member_id that's aware of subsystem_id parameter."""
@@ -2531,69 +2451,7 @@ async def tag_autocomplete(interaction: discord.Interaction, current: str):
         return []
 
 
-# ---------------------------------------------------------------------------
-# Tag selection views
-# ---------------------------------------------------------------------------
-
-class TagSelect(discord.ui.Select):
-    def __init__(self, available_tags, preselected=None):
-        options = [
-            discord.SelectOption(label=tag, value=tag, default=(tag in preselected if preselected else False))
-            for tag in available_tags
-        ][:25]
-        super().__init__(
-            placeholder="Select tags (up to 25 shown)...",
-            min_values=0,
-            max_values=len(options) if options else 1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        self.view.selected_tags = self.values
-        await interaction.response.defer()
-
-class ConfirmTags(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Confirm", style=discord.ButtonStyle.green)
-
-    async def callback(self, interaction: discord.Interaction):
-        self.view.stop()
-        await interaction.response.defer()
-
-class TagView(discord.ui.View):
-    def __init__(self, available_tags, preselected=None):
-        super().__init__(timeout=120)
-        self.selected_tags = preselected or []
-        if available_tags:
-            self.add_item(TagSelect(available_tags, preselected))
-        self.add_item(ConfirmTags())
-
-class TagMultiSelect(discord.ui.Select):
-    def __init__(self, available_tags, members_dict):
-        self.members_dict = members_dict
-        options = [discord.SelectOption(label=tag, value=tag) for tag in available_tags[:25]]
-        super().__init__(
-            placeholder="Select one or more tags (up to 25 shown)...",
-            min_values=1,
-            max_values=len(options) if options else 1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        tag_list = self.values
-        filtered = [m for m in self.members_dict.values() if all(t in m.get("tags", []) for t in tag_list)]
-        if not filtered:
-            desc = "No members match all selected tags."
-        else:
-            desc = "\n".join(f"**{m['name']}** — ID `{m['id']}` — Tags: {', '.join(m.get('tags', []))}" for m in filtered)
-        embed = discord.Embed(title=f"Members matching tags: {', '.join(tag_list)}", description=desc, color=discord.Color.green())
-        await interaction.response.edit_message(embed=embed, view=self.view)
-
-class TagMultiView(discord.ui.View):
-    def __init__(self, available_tags, members_dict):
-        super().__init__(timeout=None)
-        if available_tags:
-            self.add_item(TagMultiSelect(available_tags, members_dict))
+# Tag views are defined in views.py — imported from there by commands_slash.py and commands_prefix.py
 
 
 # ---------------------------------------------------------------------------

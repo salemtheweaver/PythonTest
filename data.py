@@ -35,8 +35,10 @@ def _background_github_save_worker():
         for sys_id, sys_data in payload.get("systems", {}).items():
             _github_save_system(sys_id, sys_data)
 
-        # Persist shared moderation/admin state so it survives restarts.
-        _github_save_file(JSON_FILE, payload)
+        # Only write monolith if it has non-system keys (e.g. _moderation)
+        non_system_keys = [k for k in payload if k != "systems"]
+        if non_system_keys:
+            _github_save_file(JSON_FILE, payload)
 
 
 def _queue_github_save(data_obj):
@@ -59,10 +61,12 @@ def _queue_system_save(system_id, system_data):
     """Queue a single system save for background GitHub persistence."""
     global _pending_save_payload, _save_worker_started
 
-    payload = {"systems": {system_id: json.loads(json.dumps(system_data))}}
+    frozen_data = json.loads(json.dumps(system_data))
 
     with _save_condition:
-        _pending_save_payload = payload
+        if _pending_save_payload is None:
+            _pending_save_payload = {"systems": {}}
+        _pending_save_payload.setdefault("systems", {})[system_id] = frozen_data
         if not _save_worker_started:
             worker = threading.Thread(target=_background_github_save_worker, daemon=True)
             worker.start()
@@ -81,7 +85,10 @@ def flush_pending_save():
         print("[INFO] Flushing pending GitHub saves before shutdown...")
         for sys_id, sys_data in payload.get("systems", {}).items():
             _github_save_system(sys_id, sys_data)
-        _github_save_file(JSON_FILE, payload)
+        # Only write monolith if it has non-system keys (e.g. _moderation)
+        non_system_keys = [k for k in payload if k != "systems"]
+        if non_system_keys:
+            _github_save_file(JSON_FILE, payload)
         print("[INFO] Shutdown save complete.")
 
 

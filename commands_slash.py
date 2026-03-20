@@ -131,7 +131,6 @@ from helpers import (
     is_user_suspended,
     _recent_checkins,
 )
-from data import _github_save_file
 from config import (
     TIMEZONE_FIXED_OFFSETS,
     COMMON_TIMEZONES,
@@ -146,24 +145,6 @@ from views import GroupOrderView
 # Local helpers used only within this file
 # =============================================
 
-# Legacy members dict (loaded from JSON_FILE for backwards compat)
-if os.path.exists(JSON_FILE):
-    with open(JSON_FILE, "r") as f:
-        members = json.load(f)
-else:
-    members = {}
-
-
-def save_members():
-    with open(JSON_FILE, "w") as f:
-        json.dump(members, f, indent=4)
-    _github_save_file(JSON_FILE, members)
-
-
-def get_next_member_id():
-    if not members:
-        return 1
-    return max(int(mid) for mid in members.keys()) + 1
 
 
 def format_us(iso_string):

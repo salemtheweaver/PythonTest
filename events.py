@@ -602,15 +602,34 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     if isinstance(after.channel, discord.Thread):
         send_kwargs["thread"] = after.channel
 
-    proxied_message = await webhook.send(**send_kwargs)
-    remember_proxied_message_origin(
-        proxied_message=proxied_message,
-        source_message=after,
-        sender_user_id=after.author.id,
-        system_id=system_id,
-        scope_id=scope_id_for_latch,
-        member_data=proxy_member,
-    )
+    # Check if we already proxied the original message — if so, edit instead of sending new
+    existing_proxied_id = None
+    for audit_id, audit_entry in PROXY_MESSAGE_AUDIT.items():
+        if audit_entry.get("source_message_id") == before.id:
+            existing_proxied_id = audit_id
+            break
+
+    if existing_proxied_id:
+        # Edit the existing proxied message instead of creating a duplicate
+        try:
+            edit_kwargs = {"content": final_content}
+            if reply_embed is not None:
+                edit_kwargs["embeds"] = [reply_embed]
+            await webhook.edit_message(existing_proxied_id, **edit_kwargs)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            # If editing fails (message deleted, etc.), fall through to send new
+            existing_proxied_id = None
+
+    if not existing_proxied_id:
+        proxied_message = await webhook.send(**send_kwargs)
+        remember_proxied_message_origin(
+            proxied_message=proxied_message,
+            source_message=after,
+            sender_user_id=after.author.id,
+            system_id=system_id,
+            scope_id=scope_id_for_latch,
+            member_data=proxy_member,
+        )
 
     if explicit_proxy and latch_update:
         active_autoproxy_settings["latch_scope_id"] = scope_id_for_latch
@@ -625,7 +644,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
         pass
 
     # Clean up duplicate proxy messages from other bots (e.g. PluralKit)
-    if proxied_message and final_content:
+    if not existing_proxied_id and final_content:
         asyncio.create_task(
             _cleanup_duplicate_proxy_messages(
                 after.channel, after.author.id, final_content, proxied_message.id
