@@ -3682,13 +3682,16 @@ async def viewmember(
 ])
 async def randommember(
     interaction: discord.Interaction,
-    target_user_id: str = None,
     privacy_pool: str = "all",
 ):
     requester_id = interaction.user.id
-    system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
-    if error:
-        await interaction.response.send_message(error, ephemeral=True)
+    system_id = get_user_system_id(requester_id)
+    if not system_id:
+        await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+        return
+    system = systems_data.get("systems", {}).get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
         return
 
     selected_pool = (privacy_pool or "all").strip().lower()
@@ -3700,29 +3703,18 @@ async def randommember(
     candidates = []
     for scope_id, members_dict in iter_system_member_dicts(system):
         for member in members_dict.values():
-            if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
-                continue
             if selected_pool != "all" and get_member_privacy_level(member) != selected_pool:
                 continue
             candidates.append((scope_id, member))
 
     if not candidates:
-        if str(target_owner_id) == str(requester_id):
-            if selected_pool == "all":
-                await interaction.response.send_message("You do not have any members yet.", ephemeral=True)
-            else:
-                await interaction.response.send_message(
-                    f"You do not have any members in the `{selected_pool}` privacy pool.",
-                    ephemeral=True,
-                )
+        if selected_pool == "all":
+            await interaction.response.send_message("You do not have any members yet.", ephemeral=True)
         else:
-            if selected_pool == "all":
-                await interaction.response.send_message("No visible members were found for that system.", ephemeral=True)
-            else:
-                await interaction.response.send_message(
-                    f"No visible members were found in the `{selected_pool}` privacy pool.",
-                    ephemeral=True,
-                )
+            await interaction.response.send_message(
+                f"You do not have any members in the `{selected_pool}` privacy pool.",
+                ephemeral=True,
+            )
         return
 
     scope_id, member = random.choice(candidates)

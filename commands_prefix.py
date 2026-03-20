@@ -200,7 +200,7 @@ async def help_prefix(ctx: commands.Context):
                 "• Cor;addmember <fields...>\n"
                 "• Cor;members (`mem`) [main|all|subsystem_id] [page] [target_user_id]\n"
                 "• Cor;viewmember (`vm`) <member_id> [subsystem_id] [target_user_id]\n"
-                "• Cor;random [public|friends|trusted|all] [target_user_id]\n"
+                "• Cor;random [public|friends|trusted|all]\n"
                 "• Cor;searchmember <query> [subsystem_id]\n"
                 "• Cor;editmember <fields...>\n"
                 "• Cor;editmemberimages <member_id> [subsystem_id]\n"
@@ -1173,46 +1173,37 @@ async def random_prefix(ctx: commands.Context, arg1: str = None, arg2: str = Non
     valid_pools = {"public", "friends", "trusted", "all"}
 
     selected_pool = "all"
-    target_user_id = None
 
     if arg1:
         arg1_clean = str(arg1).strip().lower()
         if arg1_clean in valid_pools:
             selected_pool = arg1_clean
-            target_user_id = arg2
         else:
-            target_user_id = arg1
-            if arg2:
-                arg2_clean = str(arg2).strip().lower()
-                if arg2_clean in valid_pools:
-                    selected_pool = arg2_clean
+            await ctx.send("Usage: Cor;random [public|friends|trusted|all]")
+            return
 
     requester_id = ctx.author.id
-    system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
-    if error:
-        await ctx.send(error)
+    system_id = get_user_system_id(requester_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+    system = systems_data.get("systems", {}).get(system_id)
+    if not system:
+        await ctx.send("System not found.")
         return
 
     candidates = []
     for scope_id, members_dict in iter_system_member_dicts(system):
         for member in members_dict.values():
-            if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
-                continue
             if selected_pool != "all" and get_member_privacy_level(member) != selected_pool:
                 continue
             candidates.append((scope_id, member))
 
     if not candidates:
-        if str(target_owner_id) == str(requester_id):
-            if selected_pool == "all":
-                await ctx.send("You do not have any members yet.")
-            else:
-                await ctx.send(f"You do not have any members in the `{selected_pool}` privacy pool.")
+        if selected_pool == "all":
+            await ctx.send("You do not have any members yet.")
         else:
-            if selected_pool == "all":
-                await ctx.send("No visible members were found for that system.")
-            else:
-                await ctx.send(f"No visible members were found in the `{selected_pool}` privacy pool.")
+            await ctx.send(f"You do not have any members in the `{selected_pool}` privacy pool.")
         return
 
     scope_id, member = random.choice(candidates)
