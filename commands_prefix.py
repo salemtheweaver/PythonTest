@@ -1268,6 +1268,21 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         await ctx.send("You do not have permission to view this member list.")
         return
 
+    # Determine viewer access level
+    viewer_id = str(requester_id)
+    owner_id = str(system.get("owner_id") or "")
+    access_levels = {"public"}
+    if viewer_id == owner_id:
+        access_levels = {"public", "friends", "trusted"}
+    else:
+        settings = get_external_settings(system)
+        trusted = set(str(uid) for uid in settings.get("trusted_users", []))
+        friends = set(str(uid) for uid in settings.get("friend_users", []))
+        if viewer_id in trusted:
+            access_levels = {"public", "friends", "trusted"}
+        elif viewer_id in friends:
+            access_levels = {"public", "friends"}
+
     scope_lower = (scope or "main").strip().lower()
     if scope_lower == "all":
         member_rows = []
@@ -1275,7 +1290,8 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         for scope_id, scoped_members in iter_system_member_dicts(system):
             scoped_members_lookup[scope_id] = scoped_members
             for member_id, member in scoped_members.items():
-                if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
+                privacy_level = get_member_privacy_level(member)
+                if privacy_level not in access_levels:
                     continue
                 member_rows.append((scope_id, member_id, member))
         title_scope = "Entire System"
@@ -1284,7 +1300,8 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         scoped_members_lookup = {None: members_dict}
         member_rows = []
         for member_id, member in members_dict.items():
-            if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
+            privacy_level = get_member_privacy_level(member)
+            if privacy_level not in access_levels:
                 continue
             member_rows.append((None, member_id, member))
         title_scope = "Main System"
@@ -1296,7 +1313,8 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         scoped_members_lookup = {scope: members_dict}
         member_rows = []
         for member_id, member in members_dict.items():
-            if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
+            privacy_level = get_member_privacy_level(member)
+            if privacy_level not in access_levels:
                 continue
             member_rows.append((scope, member_id, member))
         title_scope = get_scope_label(scope).capitalize()
