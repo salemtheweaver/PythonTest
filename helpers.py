@@ -1327,7 +1327,6 @@ def build_member_profile_embed(member, system=None):
 
     embed = discord.Embed(
         title=title,
-        description=bio_text or None,
         color=embed_color
     )
 
@@ -1401,6 +1400,14 @@ def build_member_profile_embed(member, system=None):
                 value=_truncate(groups_text, 1024),
                 inline=False,
             )
+
+    # Add description at the bottom
+    if bio_text:
+        embed.add_field(
+            name="Description",
+            value=bio_text,
+            inline=False,
+        )
 
     profile_pic_url = normalize_embed_image_url(member.get("profile_pic"))
     if profile_pic_url:
