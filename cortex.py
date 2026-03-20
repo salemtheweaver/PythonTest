@@ -26,5 +26,6 @@ import tasks
 # Also register the prefix command gate from helpers
 from helpers import prefix_command_gate
 
-# Start the bot
+# Debug print to confirm bot instance and token
+print(f"[DEBUG] Starting bot instance: {bot} with token: {TOKEN[:6]}... (length {len(TOKEN)})")
 bot.run(TOKEN)

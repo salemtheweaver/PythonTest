@@ -97,6 +97,7 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
+    print(f"[DEBUG] on_message handler loaded. Message author: {message.author}, content: '{message.content}'")
     # Never proxy bot/webhook traffic.
     if message.author.bot or message.webhook_id is not None:
         return
