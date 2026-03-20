@@ -1,3 +1,42 @@
+@bot.command(name="removemembers")
+async def removemembers_prefix(ctx: commands.Context, *member_ids: str, subsystem_id: str = None):
+    """
+    Remove multiple members from the main system or a subsystem.
+    Usage: Cor;removemembers <member_ids...> [subsystem_id]
+    """
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+
+    members_dict = get_system_members(system_id, subsystem_id)
+    if members_dict is None:
+        await ctx.send(f"Subsystem not found: {get_scope_label(subsystem_id)}.")
+        return
+
+    if not member_ids:
+        await ctx.send("Usage: Cor;removemembers <member_ids...> [subsystem_id]")
+        return
+
+    removed = []
+    not_found = []
+    for member_id in member_ids:
+        member_id_clean = str(member_id).strip()
+        if member_id_clean in members_dict:
+            member_name = members_dict[member_id_clean].get("name", member_id_clean)
+            del members_dict[member_id_clean]
+            removed.append(member_name)
+        else:
+            not_found.append(member_id_clean)
+
+    save_systems()
+    msg = []
+    if removed:
+        msg.append(f"Removed: {', '.join(removed)}")
+    if not_found:
+        msg.append(f"Not found: {', '.join(not_found)}")
+    await ctx.send("\n".join(msg) if msg else "No members removed.")
 import discord
 import random
 from discord import app_commands
