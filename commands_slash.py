@@ -260,7 +260,7 @@ class CoFrontSelect(discord.ui.Select):
 
 class CoFrontView(discord.ui.View):
     def __init__(self, members_dict, main_member_id):
-        super().__init__(timeout=120)
+        super().__init__(timeout=600)
         self.main_member_id = str(main_member_id)
         self.member_items = sorted(
             [
@@ -423,7 +423,7 @@ class MultiMemberSelect(discord.ui.Select):
 
 class MultiMemberView(discord.ui.View):
     def __init__(self, members_dict):
-        super().__init__(timeout=120)
+        super().__init__(timeout=600)
         self.members_dict = members_dict
         self.member_items = sorted(
             [(member_id, member) for member_id, member in members_dict.items()],
@@ -604,7 +604,20 @@ async def createsubsystem(
         return
     system = systems_data["systems"][system_id]
     subsystems = system.setdefault("subsystems", {})
-    next_sub_id = chr(97 + len(subsystems))  # 'a', 'b', 'c', ...
+    # Find next available ID: a-z, then aa, ab, ..., zz, aaa, etc.
+    import string
+    def next_subsystem_id(existing):
+        # Generate IDs in order: a-z, aa-zz, aaa-zzz, ...
+        chars = string.ascii_lowercase
+        length = 1
+        while True:
+            for id_tuple in __import__('itertools').product(chars, repeat=length):
+                candidate = ''.join(id_tuple)
+                if candidate not in existing:
+                    return candidate
+            length += 1
+
+    next_sub_id = next_subsystem_id(subsystems)
     subsystems[next_sub_id] = {
         "subsystem_name": subsystem_name,
         "members": {},
@@ -620,6 +633,27 @@ async def createsubsystem(
 
 @tree.command(name="editsubsystem", description="Edit a subsystem's name")
 async def editsubsystem(
+
+    # Delete subsystem command
+    @tree.command(name="deletesubsystem", description="Delete a subsystem from your system")
+    @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
+    async def deletesubsystem(
+        interaction: discord.Interaction,
+        subsystem_id: str
+    ):
+        user_id = interaction.user.id
+        system_id = get_user_system_id(user_id)
+        if not system_id:
+            await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+            return
+        system = systems_data["systems"][system_id]
+        subsystems = system.get("subsystems", {})
+        if subsystem_id not in subsystems:
+            await interaction.response.send_message(f"Subsystem `{subsystem_id}` not found.", ephemeral=True)
+            return
+        del subsystems[subsystem_id]
+        save_systems()
+        await interaction.response.send_message(f"Subsystem `{subsystem_id}` deleted.", ephemeral=True)
     interaction: discord.Interaction,
     subsystem_id: str,
     new_name: str
