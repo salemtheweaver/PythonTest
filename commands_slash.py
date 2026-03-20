@@ -109,6 +109,8 @@ from helpers import (
     add_external_audit_entry,
     parse_time_delta,
     parse_sendmessage_args,
+        # Add help text for export/import
+        # You can use /exportsystem to export your system (including subsystems and members) as a JSON file, and /importsystem to import it to another account.
     add_scheduled_message,
     get_server_appearance,
     get_server_member_appearance,
@@ -863,6 +865,115 @@ async def alterprivacy(
     await interaction.response.send_message(
         f"Privacy for **{member.get('name', member_id)}** set to **{cleaned}**.",
         ephemeral=True,
+    )
+
+
+@tree.command(name="bulkalterprivacy", description="Set privacy level for multiple members at once")
+@app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
+async def bulkalterprivacy(
+    interaction: discord.Interaction,
+    member_ids: str,
+    level: str,
+    subsystem_id: str = None,
+):
+    user_id = interaction.user.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await interaction.response.send_message("You must register first using /register.", ephemeral=True)
+        return
+
+    members_dict = get_system_members(system_id, subsystem_id)
+    if members_dict is None:
+        await interaction.response.send_message("Subsystem not found.", ephemeral=True)
+        return
+
+    raw_level = str(level).strip().lower()
+    if raw_level not in PROFILE_PRIVACY_LEVELS:
+        await interaction.response.send_message(
+            "Invalid privacy level. Use: private, trusted, friends, or public.",
+            ephemeral=True,
+        )
+        return
+
+    # Parse member identifiers from comma-separated input
+    id_list = [mid.strip() for mid in member_ids.split(",") if mid.strip()]
+    
+    if not id_list:
+        await interaction.response.send_message("Please provide at least one member ID or name (comma-separated).", ephemeral=True)
+        return
+
+    cleaned_level = raw_level
+    success_count = 0
+    errors = []
+    
+    for identifier in id_list:
+        resolved_id, resolved_member, error = resolve_member_identifier(members_dict, identifier)
+        if error:
+            errors.append(f"`{identifier}`: {error}")
+        else:
+            resolved_member["privacy_level"] = cleaned_level
+            success_count += 1
+
+    save_systems()
+    
+    response_lines = [f"Privacy set to **{cleaned_level}** for **{success_count}** member(s)."]
+    if errors:
+        response_lines.append("**Errors:**\n" + "\n".join(errors))
+    
+    await interaction.response.send_message("\n".join(response_lines), ephemeral=True)
+
+
+# =============================================
+# System Export/Import Commands
+# =============================================
+import io
+
+@tree.command(name="exportsystem", description="Export your entire system (including subsystems and members) as a JSON file")
+async def exportsystem(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+        return
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
+        return
+    # Prepare export data
+    export_data = deepcopy(system)
+    export_data["exported_at"] = datetime.now(timezone.utc).isoformat()
+    export_data["original_owner_id"] = str(user_id)
+    json_bytes = json.dumps(export_data, indent=2).encode("utf-8")
+    file = discord.File(fp=io.BytesIO(json_bytes), filename=f"system_{system_id}_export.json")
+    await interaction.response.send_message(
+        "Your system export is ready. Save this file and use /importsystem on your new account.",
+        file=file,
+        ephemeral=True
+    )
+
+@tree.command(name="importsystem", description="Import a system from a JSON file (including subsystems and members)")
+async def importsystem(interaction: discord.Interaction, file: discord.Attachment):
+    user_id = interaction.user.id
+    if get_user_system_id(user_id):
+        await interaction.response.send_message("You already have a registered system. Delete it first to import.", ephemeral=True)
+        return
+    try:
+        content = await file.read()
+        import_data = json.loads(content.decode("utf-8"))
+    except Exception:
+        await interaction.response.send_message("Failed to read or parse the import file. Make sure it's a valid JSON export.", ephemeral=True)
+        return
+    # Remove old owner and assign new
+    import_data["owner_id"] = str(user_id)
+    import_data.pop("original_owner_id", None)
+    import_data.pop("exported_at", None)
+    # Find next available system ID
+    next_id = str(max([int(sid) for sid in systems_data["systems"].keys()] or [0]) + 1)
+    systems_data["systems"][next_id] = import_data
+    save_systems()
+    await interaction.response.send_message(
+        f"System imported successfully as **{import_data.get('system_name', 'Unnamed System')}**! You can now use all features.",
+        ephemeral=True
     )
 
 
@@ -4179,11 +4290,30 @@ async def members_list(
     # Initial embed
     embed = get_embed(page)
 
-    # Buttons for pagination
+    # Dropdown for page selection
     class Paginator(discord.ui.View):
         def __init__(self):
             super().__init__(timeout=60)
             self.current_page = page
+            self.add_item(self.PageSelect())
+
+        class PageSelect(discord.ui.Select):
+            def __init__(self):
+                options = [
+                    discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == page))
+                    for i in range(1, total_pages + 1)
+                ]
+                super().__init__(
+                    placeholder="Jump to page...",
+                    min_values=1,
+                    max_values=1,
+                    options=options
+                )
+
+            async def callback(self, interaction: discord.Interaction):
+                selected_page = int(self.values[0])
+                self.view.current_page = selected_page
+                await interaction.response.edit_message(embed=get_embed(selected_page), view=self.view)
 
         @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary)
         async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):

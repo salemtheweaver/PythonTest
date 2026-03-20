@@ -1320,6 +1320,9 @@ def build_member_profile_embed(member, system=None):
 
     bio_text = str(member.get("description") or "").strip()
     if bio_text:
+        # Clean up extra whitespace while preserving intentional line breaks
+        lines = [line.strip() for line in bio_text.split('\n')]
+        bio_text = '\n'.join(line for line in lines if line)  # Remove empty lines
         bio_text = _truncate(bio_text, 4000)
 
     embed = discord.Embed(
@@ -1346,8 +1349,36 @@ def build_member_profile_embed(member, system=None):
     playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
     if playlist_text:
         info_lines.append(f"**Playlist:** {playlist_text}")
-    fronting = "Yes" if member.get("fronting") else "No"
-    info_lines.append(f"**Currently Fronting:** {fronting}")
+    
+    # Fronting status
+    current_front = member.get("current_front")
+    if current_front:
+        try:
+            start_dt = datetime.fromisoformat(current_front["start"])
+            duration = format_duration((datetime.now(timezone.utc) - start_dt).total_seconds())
+            cofront_ids = current_front.get("cofronts", [])
+            cofront_text = ""
+            if cofront_ids and system:
+                # Try to find cofront names in the same scope
+                cofront_names = []
+                for scope_id, members_dict in iter_system_member_dicts(system):
+                    for cofront_id in cofront_ids:
+                        if cofront_id in members_dict:
+                            cofront_names.append(members_dict[cofront_id].get("name", cofront_id))
+                if cofront_names:
+                    cofront_text = f" (with {', '.join(cofront_names)})"
+            info_lines.append(f"**Currently Fronting:** Yes, for {duration}{cofront_text}")
+        except (ValueError, KeyError):
+            info_lines.append(f"**Currently Fronting:** Yes")
+    else:
+        info_lines.append(f"**Currently Fronting:** No")
+    
+    # Total front time if there's any history
+    total_front_seconds = calculate_front_duration(member)
+    if total_front_seconds > 0:
+        total_front_text = format_duration(total_front_seconds)
+        info_lines.append(f"**Total Front Time:** {total_front_text}")
+    
     embed.add_field(
         name="Info",
         value=_truncate("\n".join(info_lines), 1024) or "No additional info.",
@@ -1389,6 +1420,8 @@ def build_member_profile_embed(member, system=None):
             pass
 
     return embed
+
+
 
 def build_subsystem_card_embed(subsystem_data, subsystem_id, system):
     """Build a subsystem profile embed."""

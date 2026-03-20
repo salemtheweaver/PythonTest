@@ -148,6 +148,14 @@ async def on_message(message: discord.Message):
             await message.channel.send(f"Timezone set to **{normalized}**.")
             return
 
+    # Debug logging for proxy bypass
+    print(f"[DEBUG] Received message: '{message.content}' from {message.author} (ID: {message.author.id})")
+    # If message starts with a backslash, do not proxy (bypass all proxy logic)
+    if message.content.startswith("\\"):
+        print(f"[DEBUG] Proxy bypass triggered for message: '{message.content}'")
+        return await bot.process_commands(message)
+
+
     ctx = await bot.get_context(message)
     if ctx.valid:
         await bot.process_commands(message)
@@ -186,41 +194,43 @@ async def on_message(message: discord.Message):
         message.guild.id if message.guild else None,
     )
 
-    # Check for global proxy prefix (;;)
-    if message.content.startswith(PROXY_PREFIX):
-        explicit_proxy = True
-        proxied_text = message.content[len(PROXY_PREFIX):].lstrip()
-        scope_id_for_latch, proxy_member = get_fronting_member_for_user(message.author.id)
-        if not proxy_member:
-            await message.channel.send(
-                f"{message.author.mention} no currently fronting member was found. Use /switchmember first."
-            )
-            await bot.process_commands(message)
-            return
-        latch_update = True
-    else:
-        # Check explicit member tag proxy first, then autoproxy mode fallback.
-        scope_id_for_latch, proxy_member, tagged_text = find_tagged_proxy_member(system, message.content)
-        if proxy_member:
+    # Proxy logic (skip if message starts with backslash)
+    if not message.content.startswith("\\"):
+        # Check for global proxy prefix (;;)
+        if message.content.startswith(PROXY_PREFIX):
             explicit_proxy = True
+            proxied_text = message.content[len(PROXY_PREFIX):].lstrip()
+            scope_id_for_latch, proxy_member = get_fronting_member_for_user(message.author.id)
+            if not proxy_member:
+                await message.channel.send(
+                    f"{message.author.mention} no currently fronting member was found. Use /switchmember first."
+                )
+                await bot.process_commands(message)
+                return
             latch_update = True
-            proxied_text = tagged_text
         else:
-            mode = active_autoproxy_settings.get("mode", "off")
-            if mode == "front":
-                scope_id_for_latch, proxy_member = get_fronting_member_for_user(message.author.id)
-                proxied_text = message.content
-            elif mode == "latch":
-                scope_id_for_latch = active_autoproxy_settings.get("latch_scope_id")
-                latch_member_id = active_autoproxy_settings.get("latch_member_id")
-                proxy_member = get_member_from_scope(system, scope_id_for_latch, latch_member_id)
-                if latch_member_id is not None and proxy_member is None:
-                    await message.channel.send(
-                        f"{message.author.mention} autoproxy is set to latch, but the saved latched member could not be found. Proxy a message with a member tag first to set a new latch target."
-                    )
-                    await bot.process_commands(message)
-                    return
-                proxied_text = message.content
+            # Check explicit member tag proxy first, then autoproxy mode fallback.
+            scope_id_for_latch, proxy_member, tagged_text = find_tagged_proxy_member(system, message.content)
+            if proxy_member:
+                explicit_proxy = True
+                latch_update = True
+                proxied_text = tagged_text
+            else:
+                mode = active_autoproxy_settings.get("mode", "off")
+                if mode == "front":
+                    scope_id_for_latch, proxy_member = get_fronting_member_for_user(message.author.id)
+                    proxied_text = message.content
+                elif mode == "latch":
+                    scope_id_for_latch = active_autoproxy_settings.get("latch_scope_id")
+                    latch_member_id = active_autoproxy_settings.get("latch_member_id")
+                    proxy_member = get_member_from_scope(system, scope_id_for_latch, latch_member_id)
+                    if latch_member_id is not None and proxy_member is None:
+                        await message.channel.send(
+                            f"{message.author.mention} autoproxy is set to latch, but the saved latched member could not be found. Proxy a message with a member tag first to set a new latch target."
+                        )
+                        await bot.process_commands(message)
+                        return
+                    proxied_text = message.content
 
     # If no proxy triggered, process as normal command
     if not proxy_member:
@@ -366,12 +376,10 @@ async def on_message(message: discord.Message):
 
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
-    # Only handle unicode question-mark reactions added by non-bot users.
+    # Handle X emoji for delete, and question-mark for origin lookup
     if payload.user_id == bot.user.id:
         return
     if getattr(payload.emoji, "id", None) is not None:
-        return
-    if payload.emoji.name not in ORIGIN_LOOKUP_EMOJIS:
         return
 
     audit_entry = PROXY_MESSAGE_AUDIT.get(int(payload.message_id))
@@ -380,6 +388,31 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 
     # Ensure lookup is for the same proxied message/channel pair.
     if int(audit_entry.get("proxied_channel_id", 0)) != int(payload.channel_id):
+        return
+
+    message_channel = bot.get_channel(payload.channel_id)
+    if message_channel is None:
+        try:
+            message_channel = await bot.fetch_channel(payload.channel_id)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            return
+
+    try:
+        proxied_message = await message_channel.fetch_message(payload.message_id)
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException, AttributeError):
+        return
+
+    # Delete proxied message if original author reacts with X emoji
+    if payload.emoji.name in {"❌", "✖️", "x", "X"}:
+        if payload.user_id == audit_entry.get("sender_user_id"):
+            try:
+                await proxied_message.delete()
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                pass
+            return
+
+    # Handle question-mark emoji for origin lookup
+    if payload.emoji.name not in ORIGIN_LOOKUP_EMOJIS:
         return
 
     reactor_user = bot.get_user(payload.user_id)
@@ -395,15 +428,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
         # User likely has DMs disabled; ignore silently.
         return
 
-    message_channel = bot.get_channel(payload.channel_id)
-    if message_channel is None:
-        try:
-            message_channel = await bot.fetch_channel(payload.channel_id)
-        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-            return
-
     try:
-        proxied_message = await message_channel.fetch_message(payload.message_id)
         await proxied_message.remove_reaction(payload.emoji, reactor_user)
     except (discord.Forbidden, discord.NotFound, discord.HTTPException, AttributeError):
         pass

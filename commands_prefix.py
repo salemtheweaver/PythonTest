@@ -145,6 +145,7 @@ async def help_prefix(ctx: commands.Context):
                 "**Privacy**\n"
                 "• Cor;systemprivacy (`spv`) <private|trusted|friends|public>\n"
                 "• Cor;alterprivacy (`apv`) <member_id> <private|trusted|friends|public> [subsystem_id]\n"
+                "• Cor;bulkalterprivacy (`bapv`) <member_ids> <private|trusted|friends|public> [subsystem_id]\n"
                 "• Cor;privacystatus (`pvs`)\n\n"
                 "**Timezone**\n"
                 "• Cor;settimezone (`stz`) <timezone>\n"
@@ -483,6 +484,60 @@ async def settimezone_prefix(ctx: commands.Context, *, timezone_name: str = None
 # Focus Mode prefix commands (singlet only)
 # -----------------------------
 
+
+# =============================================
+# System Export/Import Prefix Commands
+# =============================================
+import io
+
+@bot.command(name="exportsystem", aliases=["expsys"])
+async def exportsystem_prefix(ctx: commands.Context):
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+    export_data = deepcopy(system)
+    export_data["exported_at"] = datetime.now(timezone.utc).isoformat()
+    export_data["original_owner_id"] = str(user_id)
+    json_bytes = json.dumps(export_data, indent=2).encode("utf-8")
+    file = discord.File(fp=io.BytesIO(json_bytes), filename=f"system_{system_id}_export.json")
+    try:
+        await ctx.author.send(
+            "Your system export is ready. Save this file and use Cor;importsystem on your new account.",
+            file=file
+        )
+        await ctx.send("System export sent to your DMs.")
+    except Exception:
+        await ctx.send("Failed to send DM. Please check your DM settings.")
+
+@bot.command(name="importsystem", aliases=["impsys"])
+async def importsystem_prefix(ctx: commands.Context):
+    user_id = ctx.author.id
+    if get_user_system_id(user_id):
+        await ctx.send("You already have a registered system. Delete it first to import.")
+        return
+    if not ctx.message.attachments:
+        await ctx.send("Attach your exported JSON file to the command message.")
+        return
+    file = ctx.message.attachments[0]
+    try:
+        content = await file.read()
+        import_data = json.loads(content.decode("utf-8"))
+    except Exception:
+        await ctx.send("Failed to read or parse the import file. Make sure it's a valid JSON export.")
+        return
+    import_data["owner_id"] = str(user_id)
+    import_data.pop("original_owner_id", None)
+    import_data.pop("exported_at", None)
+    next_id = str(max([int(sid) for sid in systems_data["systems"].keys()] or [0]) + 1)
+    systems_data["systems"][next_id] = import_data
+    save_systems()
+    await ctx.send(f"System imported successfully as **{import_data.get('system_name', 'Unnamed System')}**! You can now use all features.")
 @bot.command(name="setmode", aliases=["sm"])
 async def setmode_prefix(ctx: commands.Context, *, args: str = None):
     user_id = ctx.author.id
@@ -2403,6 +2458,57 @@ async def alterprivacy_prefix(ctx: commands.Context, member_id: str = None, leve
     member["privacy_level"] = cleaned
     save_systems()
     await ctx.send(f"Privacy for **{member.get('name', member_id)}** set to **{cleaned}**.")
+
+
+@bot.command(name="bulkalterprivacy", aliases=["bapv"])
+async def bulkalterprivacy_prefix(ctx: commands.Context, member_ids: str = None, level: str = None, subsystem_id: str = None):
+    if member_ids is None or level is None:
+        await ctx.send("Usage: Cor;bulkalterprivacy <member_ids> <private|trusted|friends|public> [subsystem_id]\nExample: Cor;bulkalterprivacy 1,Alice,Bob public")
+        return
+
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+
+    members_dict = get_system_members(system_id, subsystem_id)
+    if members_dict is None:
+        await ctx.send("Subsystem not found.")
+        return
+
+    raw_level = str(level).strip().lower()
+    if raw_level not in PROFILE_PRIVACY_LEVELS:
+        await ctx.send("Invalid privacy level. Use: private, trusted, friends, or public.")
+        return
+
+    # Parse member identifiers from comma-separated input
+    id_list = [mid.strip() for mid in member_ids.split(",") if mid.strip()]
+    
+    if not id_list:
+        await ctx.send("Please provide at least one member ID or name (comma-separated).")
+        return
+
+    cleaned_level = raw_level
+    success_count = 0
+    errors = []
+    
+    for identifier in id_list:
+        resolved_id, resolved_member, error = resolve_member_identifier(members_dict, identifier)
+        if error:
+            errors.append(f"`{identifier}`: {error}")
+        else:
+            resolved_member["privacy_level"] = cleaned_level
+            success_count += 1
+
+    save_systems()
+    
+    response_lines = [f"Privacy set to **{cleaned_level}** for **{success_count}** member(s)."]
+    if errors:
+        response_lines.append("**Errors:**\n" + "\n".join(errors))
+    
+    await ctx.send("\n".join(response_lines))
+
 
 
 @bot.command(name="privacystatus", aliases=["pvs"])
