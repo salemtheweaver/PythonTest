@@ -2556,7 +2556,9 @@ async def bulkalterprivacy_prefix(ctx: commands.Context, member_ids: str = None,
         await ctx.send("You must register a main system first using /register.")
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    # If subsystem_id is not provided or is blank, use main system
+    effective_subsystem_id = subsystem_id if subsystem_id not in {None, "", "main", "none", "-"} else None
+    members_dict = get_system_members(system_id, effective_subsystem_id)
     if members_dict is None:
         await ctx.send("Subsystem not found.")
         return
