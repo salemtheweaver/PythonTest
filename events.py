@@ -97,7 +97,6 @@ async def on_ready():
 
 @bot.event
 async def on_message(message: discord.Message):
-    print(f"[DEBUG] on_message handler loaded. Message author: {message.author}, content: '{message.content}'")
     # Never proxy bot/webhook traffic.
     if message.author.bot or message.webhook_id is not None:
         return
@@ -386,6 +385,9 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     audit_entry = PROXY_MESSAGE_AUDIT.get(int(payload.message_id))
     if not audit_entry:
         return
+    # Targeted debug log for X emoji reactions
+    if payload.emoji.name in {"❌", "✖️", "x", "X"}:
+        print(f"[DEBUG] X emoji reaction detected for message {payload.message_id} by user {payload.user_id}. Audit entry: {audit_entry}")
 
     # Ensure lookup is for the same proxied message/channel pair.
     if int(audit_entry.get("proxied_channel_id", 0)) != int(payload.channel_id):
