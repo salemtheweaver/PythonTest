@@ -31,6 +31,7 @@ from helpers import (
     get_effective_autoproxy_settings,
     apply_autoproxy_mode,
     get_front_reminder_settings,
+    get_birthday_reminder_settings,
     get_system_timezone_name,
     normalize_timezone_name,
     get_system_timezone,
@@ -542,6 +543,11 @@ async def register(
         "front_reminders": {
             "enabled": False,
             "hours": 4
+        },
+        "birthday_reminders": {
+            "enabled": True,
+            "days_before": [2, 1],
+            "sent_keys": {}
         },
         "external_messages": {
             "accept": False,
@@ -2760,6 +2766,110 @@ async def frontreminderstatus(interaction: discord.Interaction):
     await interaction.response.send_message(
         f"Front reminders are **{enabled_text}**. Threshold: **{settings['hours']}** hour(s). Sent by DM once per front session.",
         ephemeral=True
+    )
+
+
+@tree.command(name="birthdayreminders", description="Enable or disable DM birthday reminders")
+async def birthdayreminders(interaction: discord.Interaction, enabled: bool):
+    user_id = interaction.user.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+        return
+
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
+        return
+
+    settings = get_birthday_reminder_settings(system)
+    settings["enabled"] = enabled
+    save_systems()
+
+    status = "enabled" if enabled else "disabled"
+    day_offsets = settings.get("days_before", [2, 1])
+    day_text = ", ".join(str(int(d)) for d in day_offsets)
+    await interaction.response.send_message(
+        f"Birthday reminders are now **{status}**. Day offsets: **{day_text}** day(s) before.",
+        ephemeral=True,
+    )
+
+
+@tree.command(name="setbirthdayreminderdays", description="Set DM birthday reminder offsets in days (comma-separated)")
+async def setbirthdayreminderdays(interaction: discord.Interaction, days: str):
+    user_id = interaction.user.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+        return
+
+    parsed_days = []
+    for part in str(days or "").split(","):
+        token = part.strip()
+        if not token:
+            continue
+        if not token.isdigit():
+            await interaction.response.send_message(
+                "Invalid format. Use comma-separated whole numbers, e.g. `2,1` or `7,3,1`.",
+                ephemeral=True,
+            )
+            return
+        value = int(token)
+        if value < 0 or value > 365:
+            await interaction.response.send_message("Each day offset must be between 0 and 365.", ephemeral=True)
+            return
+        if value not in parsed_days:
+            parsed_days.append(value)
+
+    if not parsed_days:
+        await interaction.response.send_message(
+            "Provide at least one day offset, e.g. `2,1`.",
+            ephemeral=True,
+        )
+        return
+
+    if len(parsed_days) > 12:
+        await interaction.response.send_message("Please provide at most 12 day offsets.", ephemeral=True)
+        return
+
+    parsed_days.sort(reverse=True)
+
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
+        return
+
+    settings = get_birthday_reminder_settings(system)
+    settings["days_before"] = parsed_days
+    save_systems()
+
+    day_text = ", ".join(str(day) for day in parsed_days)
+    await interaction.response.send_message(
+        f"Birthday reminder day offsets set to **{day_text}** day(s) before.",
+        ephemeral=True,
+    )
+
+
+@tree.command(name="birthdayreminderstatus", description="View your DM birthday reminder settings")
+async def birthdayreminderstatus(interaction: discord.Interaction):
+    user_id = interaction.user.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+        return
+
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
+        return
+
+    settings = get_birthday_reminder_settings(system)
+    enabled_text = "enabled" if settings.get("enabled", True) else "disabled"
+    day_offsets = settings.get("days_before", [2, 1])
+    day_text = ", ".join(str(int(d)) for d in day_offsets)
+    await interaction.response.send_message(
+        f"Birthday reminders are **{enabled_text}**. Day offsets: **{day_text}** day(s) before.",
+        ephemeral=True,
     )
 
 # -----------------------------

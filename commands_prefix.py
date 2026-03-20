@@ -26,6 +26,7 @@ from helpers import (
     get_server_autoproxy_settings,
     apply_autoproxy_mode,
     get_front_reminder_settings,
+    get_birthday_reminder_settings,
     get_system_timezone_name,
     normalize_timezone_name,
     get_system_timezone,
@@ -168,7 +169,11 @@ async def help_prefix(ctx: commands.Context):
                 "**Front Reminders**\n"
                 "• Cor;frontreminders <true|false>\n"
                 "• Cor;setfrontreminderhours <hours>\n"
-                "• Cor;frontreminderstatus"
+                "• Cor;frontreminderstatus\n\n"
+                "**Birthday Reminders**\n"
+                "• Cor;birthdayreminders (`bdr`) <true|false>\n"
+                "• Cor;setbirthdayreminderdays (`sbrd`) <comma_separated_days>\n"
+                "• Cor;birthdayreminderstatus (`bdrs`)"
             ),
             "color": discord.Color.brand_green(),
         },
@@ -713,6 +718,104 @@ async def checkinstatus_prefix(ctx: commands.Context):
         f"Weekly mood summaries: **{weekly_status}**\n"
         f"{trend_text}"
     )
+
+
+@bot.command(name="birthdayreminders", aliases=["bdr"])
+async def birthdayreminders_prefix(ctx: commands.Context, enabled: str = None):
+    parsed = parse_bool_token(enabled)
+    if parsed is None:
+        await ctx.send("Usage: `Cor;birthdayreminders <true|false>`")
+        return
+
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+
+    settings = get_birthday_reminder_settings(system)
+    settings["enabled"] = parsed
+    save_systems()
+
+    status = "enabled" if parsed else "disabled"
+    day_offsets = settings.get("days_before", [2, 1])
+    day_text = ", ".join(str(int(d)) for d in day_offsets)
+    await ctx.send(f"Birthday reminders are now **{status}**. Day offsets: **{day_text}** day(s) before.")
+
+
+@bot.command(name="setbirthdayreminderdays", aliases=["sbrd"])
+async def setbirthdayreminderdays_prefix(ctx: commands.Context, *, days: str = None):
+    if not days:
+        await ctx.send("Usage: `Cor;setbirthdayreminderdays <comma_separated_days>` (example: `Cor;setbirthdayreminderdays 7,3,1`)")
+        return
+
+    parsed_days = []
+    for part in str(days).split(","):
+        token = part.strip()
+        if not token:
+            continue
+        if not token.isdigit():
+            await ctx.send("Invalid format. Use comma-separated whole numbers like `2,1` or `7,3,1`.")
+            return
+        value = int(token)
+        if value < 0 or value > 365:
+            await ctx.send("Each day offset must be between 0 and 365.")
+            return
+        if value not in parsed_days:
+            parsed_days.append(value)
+
+    if not parsed_days:
+        await ctx.send("Provide at least one day offset, e.g. `2,1`.")
+        return
+
+    if len(parsed_days) > 12:
+        await ctx.send("Please provide at most 12 day offsets.")
+        return
+
+    parsed_days.sort(reverse=True)
+
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+
+    settings = get_birthday_reminder_settings(system)
+    settings["days_before"] = parsed_days
+    save_systems()
+
+    day_text = ", ".join(str(day) for day in parsed_days)
+    await ctx.send(f"Birthday reminder day offsets set to **{day_text}** day(s) before.")
+
+
+@bot.command(name="birthdayreminderstatus", aliases=["bdrs"])
+async def birthdayreminderstatus_prefix(ctx: commands.Context):
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+
+    settings = get_birthday_reminder_settings(system)
+    enabled_text = "enabled" if settings.get("enabled", True) else "disabled"
+    day_offsets = settings.get("days_before", [2, 1])
+    day_text = ", ".join(str(int(d)) for d in day_offsets)
+    await ctx.send(f"Birthday reminders are **{enabled_text}**. Day offsets: **{day_text}** day(s) before.")
 
 
 @bot.command(name="allowexternal", aliases=["aex"])
@@ -1973,6 +2076,11 @@ async def register_prefix(ctx: commands.Context, *, system_name: str = None):
         "front_reminders": {
             "enabled": False,
             "hours": 4
+        },
+        "birthday_reminders": {
+            "enabled": True,
+            "days_before": [2, 1],
+            "sent_keys": {}
         },
         "external_messages": {
             "accept": False,

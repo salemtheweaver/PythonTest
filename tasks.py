@@ -3,6 +3,7 @@
 import discord
 from discord.ext import tasks
 from datetime import datetime, timezone, timedelta
+import re
 
 from config import bot, SCHEDULED_MESSAGES
 from data import systems_data, save_systems
@@ -12,6 +13,7 @@ from helpers import (
     get_checkin_settings, get_system_timezone,
     current_week_key, build_weekly_checkin_summary,
     cleanup_external_inbox_entries,
+    get_birthday_reminder_settings,
 )
 
 
@@ -169,3 +171,125 @@ async def before_weekly_mood_summary_loop():
 def setup_tasks():
     """Called from cortex.py to confirm tasks are loaded."""
     pass
+
+
+def _parse_birthday_month_day(raw_birthday):
+    """Parse birthday text and return (month, day), ignoring year if present."""
+    if raw_birthday is None:
+        return None
+
+    text = str(raw_birthday).strip()
+    if not text:
+        return None
+
+    # Supported examples: YYYY-MM-DD, MM-DD, MM/DD
+    match = re.match(r"^(?:(\d{4})[-/])?(\d{1,2})[-/](\d{1,2})$", text)
+    if not match:
+        return None
+
+    month = int(match.group(2))
+    day = int(match.group(3))
+
+    try:
+        datetime(2000, month, day)
+    except ValueError:
+        return None
+
+    return (month, day)
+
+
+@tasks.loop(hours=6)
+async def birthday_reminder_loop():
+    any_updates = False
+    now = datetime.now(timezone.utc)
+
+    for system in systems_data.get("systems", {}).values():
+        settings = get_birthday_reminder_settings(system)
+        if not settings.get("enabled", True):
+            continue
+
+        owner_id = system.get("owner_id")
+        if not owner_id:
+            continue
+
+        local_today = now.astimezone(get_system_timezone(system)).date()
+
+        raw_days = settings.get("days_before", [2, 1])
+        day_offsets = []
+        for item in raw_days:
+            try:
+                offset = int(item)
+            except (TypeError, ValueError):
+                continue
+            if offset < 0:
+                continue
+            if offset not in day_offsets:
+                day_offsets.append(offset)
+        if not day_offsets:
+            day_offsets = [2, 1]
+
+        sent_keys = settings.setdefault("sent_keys", {})
+
+        for days_before in sorted(day_offsets, reverse=True):
+            target_date = local_today + timedelta(days=days_before)
+            target_month_day = (target_date.month, target_date.day)
+
+            matches = []
+            for scope_id, members_dict in iter_system_member_dicts(system):
+                for member in members_dict.values():
+                    birthday = _parse_birthday_month_day(member.get("birthday"))
+                    if birthday != target_month_day:
+                        continue
+                    member_name = member.get("name", "Unknown")
+                    scope_label = get_scope_label(scope_id)
+                    matches.append(f"- {member_name} ({scope_label})")
+
+            if not matches:
+                continue
+
+            target_key = f"{target_date.isoformat()}|{days_before}"
+            if sent_keys.get(target_key) == local_today.isoformat():
+                continue
+
+            if days_before == 0:
+                headline = f"Birthday reminder: these members have birthdays today ({target_date.strftime('%B %d')}):"
+            elif days_before == 1:
+                headline = f"Birthday reminder: these members have birthdays tomorrow ({target_date.strftime('%B %d')}):"
+            else:
+                headline = f"Birthday reminder: these members have birthdays in {days_before} days ({target_date.strftime('%B %d')}):"
+
+            dm_text = f"{headline}\n" + "\n".join(matches)
+
+            try:
+                user = bot.get_user(int(owner_id)) or await bot.fetch_user(int(owner_id))
+                await user.send(dm_text)
+            except (ValueError, discord.Forbidden, discord.HTTPException):
+                pass
+
+            sent_keys[target_key] = local_today.isoformat()
+            any_updates = True
+
+        # Keep reminder state bounded.
+        stale_cutoff = local_today - timedelta(days=8)
+        stale_keys = []
+        for key in list(sent_keys.keys()):
+            date_text = str(key).split("|", 1)[0]
+            try:
+                key_date = datetime.fromisoformat(date_text).date()
+            except ValueError:
+                stale_keys.append(key)
+                continue
+            if key_date < stale_cutoff:
+                stale_keys.append(key)
+
+        for key in stale_keys:
+            sent_keys.pop(key, None)
+            any_updates = True
+
+    if any_updates:
+        save_systems()
+
+
+@birthday_reminder_loop.before_loop
+async def before_birthday_reminder_loop():
+    await bot.wait_until_ready()

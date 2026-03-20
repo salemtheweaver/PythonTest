@@ -82,13 +82,15 @@ async def on_ready():
     # Syncing on every restart can trigger Cloudflare rate limits (error 1015)
     print("Skipping automatic command sync (use /synccommands to sync manually)")
 
-    from tasks import front_reminder_loop, weekly_mood_summary_loop, scheduled_messages_loop
+    from tasks import front_reminder_loop, weekly_mood_summary_loop, scheduled_messages_loop, birthday_reminder_loop
     if not front_reminder_loop.is_running():
         front_reminder_loop.start()
     if not weekly_mood_summary_loop.is_running():
         weekly_mood_summary_loop.start()
     if not scheduled_messages_loop.is_running():
         scheduled_messages_loop.start()
+    if not birthday_reminder_loop.is_running():
+        birthday_reminder_loop.start()
 
     print("Bot is ready!")
 

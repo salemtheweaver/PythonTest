@@ -1006,6 +1006,15 @@ def get_front_reminder_settings(system):
     settings.setdefault("hours", 4)
     return settings
 
+
+def get_birthday_reminder_settings(system):
+    """Return and initialize DM birthday reminder settings for a system."""
+    settings = system.setdefault("birthday_reminders", {})
+    settings.setdefault("enabled", True)
+    settings.setdefault("days_before", [2, 1])
+    settings.setdefault("sent_keys", {})
+    return settings
+
 def get_system_timezone_name(system):
     """Return system timezone name, defaulting to UTC."""
     tz_name = system.get("timezone", "UTC")
