@@ -2568,18 +2568,17 @@ async def bulkalterprivacy_prefix(ctx: commands.Context, member_ids: str = None,
         await ctx.send("Invalid privacy level. Use: private, trusted, friends, or public.")
         return
 
-    # Parse member identifiers from comma-separated input
-    id_list = [mid.strip() for mid in member_ids.split(",") if mid.strip()]
-    
-    if not id_list:
-        await ctx.send("Please provide at least one member ID or name (comma-separated).")
+    # Parse member identifiers from comma or space separated input
+    tokens = [t.strip() for t in re.split(r",|\s", member_ids) if t.strip()]
+    if not tokens:
+        await ctx.send("Please provide at least one member ID or name (comma or space separated).")
         return
 
     cleaned_level = raw_level
     success_count = 0
     errors = []
     
-    for identifier in id_list:
+    for identifier in tokens:
         resolved_id, resolved_member, error = resolve_member_identifier(members_dict, identifier)
         if error:
             errors.append(f"`{identifier}`: {error}")
