@@ -4217,10 +4217,6 @@ async def members_list(
         await interaction.response.send_message(error, ephemeral=True)
         return
 
-    if str(target_owner_id) != str(requester_id) and not can_view_system_data(system, requester_id):
-        await interaction.response.send_message("You do not have permission to view this member list.", ephemeral=True)
-        return
-
     if whole_system:
         member_rows = []
         scoped_members_lookup = {}

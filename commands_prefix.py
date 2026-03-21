@@ -1198,10 +1198,6 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         await ctx.send(error)
         return
 
-    if str(target_owner_id) != str(requester_id) and not can_view_system_data(system, requester_id):
-        await ctx.send("You do not have permission to view this member list.")
-        return
-
     # Determine viewer access level
     viewer_id = str(requester_id)
     owner_id = str(system.get("owner_id") or "")

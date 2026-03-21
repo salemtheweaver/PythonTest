@@ -239,7 +239,7 @@ async def on_message(message: discord.Message):
     attachment_fallback_urls = []
     for attachment in message.attachments:
         try:
-            proxied_files.append(await attachment.to_file())
+            proxied_files.append(await attachment.to_file(spoiler=attachment.is_spoiler()))
         except (discord.HTTPException, discord.Forbidden):
             attachment_fallback_urls.append(attachment.url)
 
@@ -510,7 +510,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     attachment_fallback_urls = []
     for attachment in after.attachments:
         try:
-            proxied_files.append(await attachment.to_file())
+            proxied_files.append(await attachment.to_file(spoiler=attachment.is_spoiler()))
         except (discord.HTTPException, discord.Forbidden):
             attachment_fallback_urls.append(attachment.url)
 

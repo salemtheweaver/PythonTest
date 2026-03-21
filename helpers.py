@@ -1219,39 +1219,45 @@ def build_member_profile_embed(member, system=None):
         return text[:limit - 3].rstrip() + "..."
 
     display_name = str(member.get("display_name") or "").strip() or None
-    title = member["name"]
+    member_name = member["name"]
 
-    bio_text = str(member.get("description") or "").strip()
-    if bio_text:
-        # Clean up extra whitespace while preserving intentional line breaks
-        lines = [line.strip() for line in bio_text.split('\n')]
-        bio_text = '\n'.join(line for line in lines if line)  # Remove empty lines
-        bio_text = _truncate(bio_text, 4000)
+    # Build author line: "MemberName (SystemName)" like PK
+    author_name = member_name
+    if system:
+        system_name = system.get("system_name") or system.get("name")
+        if system_name:
+            author_name = f"{member_name} ({system_name})"
 
-    embed = discord.Embed(
-        title=title,
-        color=embed_color
-    )
+    profile_pic_url = normalize_embed_image_url(member.get("profile_pic"))
 
-    if display_name and display_name != title:
-        embed.set_author(name=display_name)
+    embed = discord.Embed(color=embed_color)
+    author_kwargs = {"name": author_name}
+    if profile_pic_url:
+        author_kwargs["icon_url"] = profile_pic_url
+    embed.set_author(**author_kwargs)
 
-    info_lines = [f"**ID:** {member['id']}"]
-    pronouns = member.get("pronouns")
-    if pronouns:
-        info_lines.append(f"**Pronouns:** {_truncate(pronouns, 250)}")
+    # Thumbnail: avatar on the right side
+    if profile_pic_url:
+        embed.set_thumbnail(url=profile_pic_url)
+
+    # Banner
+    banner_url = normalize_embed_image_url(member.get("banner"))
+    if banner_url:
+        embed.set_image(url=banner_url)
+
+    # --- Inline fields (PK style: small metadata side by side) ---
+
+    if display_name and display_name != member_name:
+        embed.add_field(name="Display Name", value=_truncate(display_name, 1024), inline=True)
+
     birthday = member.get("birthday")
     if birthday:
-        info_lines.append(f"**Birthday:** {birthday}")
-    if display_name and display_name != title:
-        info_lines.append(f"**Display name:** {_truncate(display_name, 250)}")
-    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
-    if tags:
-        info_lines.append(f"**Tags:** {_truncate(tags, 250)}")
-    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
-    if playlist_text:
-        info_lines.append(f"**Playlist:** {playlist_text}")
-    
+        embed.add_field(name="Birthdate", value=birthday, inline=True)
+
+    pronouns = member.get("pronouns")
+    if pronouns:
+        embed.add_field(name="Pronouns", value=_truncate(pronouns, 1024), inline=True)
+
     # Fronting status
     current_front = member.get("current_front")
     if current_front:
@@ -1261,7 +1267,6 @@ def build_member_profile_embed(member, system=None):
             cofront_ids = current_front.get("cofronts", [])
             cofront_text = ""
             if cofront_ids and system:
-                # Try to find cofront names in the same scope
                 cofront_names = []
                 for scope_id, members_dict in iter_system_member_dicts(system):
                     for cofront_id in cofront_ids:
@@ -1269,65 +1274,56 @@ def build_member_profile_embed(member, system=None):
                             cofront_names.append(members_dict[cofront_id].get("name", cofront_id))
                 if cofront_names:
                     cofront_text = f" (with {', '.join(cofront_names)})"
-            info_lines.append(f"**Currently Fronting:** Yes, for {duration}{cofront_text}")
+            embed.add_field(name="Currently Fronting", value=f"Yes, for {duration}{cofront_text}", inline=True)
         except (ValueError, KeyError):
-            info_lines.append(f"**Currently Fronting:** Yes")
+            embed.add_field(name="Currently Fronting", value="Yes", inline=True)
     else:
-        info_lines.append(f"**Currently Fronting:** No")
-    
-    # Total front time if there's any history
+        embed.add_field(name="Currently Fronting", value="No", inline=True)
+
     total_front_seconds = calculate_front_duration(member)
     if total_front_seconds > 0:
-        total_front_text = format_duration(total_front_seconds)
-        info_lines.append(f"**Total Front Time:** {total_front_text}")
-    
-    embed.add_field(
-        name="Info",
-        value=_truncate("\n".join(info_lines), 1024) or "No additional info.",
-        inline=False,
-    )
+        embed.add_field(name="Total Front Time", value=format_duration(total_front_seconds), inline=True)
 
     proxy_text = render_member_proxy_result(member)
     if proxy_text and proxy_text != "Not set":
-        embed.add_field(
-            name="Proxy Tags",
-            value=f"`{_truncate(proxy_text, 1000)}`",
-            inline=False,
-        )
+        embed.add_field(name="Proxy Tags", value=f"`{_truncate(proxy_text, 1000)}`", inline=True)
+
+    color_val = member.get("color")
+    if color_val:
+        embed.add_field(name="Color", value=f"#{str(color_val).lstrip('#')}", inline=True)
+
+    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
+    if tags:
+        embed.add_field(name="Tags", value=_truncate(tags, 1024), inline=True)
+
+    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
+    if playlist_text:
+        embed.add_field(name="Playlist", value=playlist_text, inline=True)
+
+    # --- Non-inline fields (PK style: full-width below) ---
 
     if system is not None:
         groups_text = format_member_group_lines(system, member)
         if groups_text and groups_text != "None":
-            embed.add_field(
-                name="Groups",
-                value=_truncate(groups_text, 1024),
-                inline=False,
-            )
+            embed.add_field(name="Groups", value=_truncate(groups_text, 1024), inline=False)
 
-    # Add description at the bottom
+    bio_text = str(member.get("description") or "").strip()
     if bio_text:
-        embed.add_field(
-            name="Description",
-            value=bio_text,
-            inline=False,
-        )
+        lines = [line.strip() for line in bio_text.split('\n')]
+        bio_text = '\n'.join(line for line in lines if line)
+        bio_text = _truncate(bio_text, 4000)
+        embed.add_field(name="Description", value=bio_text, inline=False)
 
-    profile_pic_url = normalize_embed_image_url(member.get("profile_pic"))
-    if profile_pic_url:
-        embed.set_thumbnail(url=profile_pic_url)
-
-    banner_url = normalize_embed_image_url(member.get("banner"))
-    if banner_url:
-        embed.set_image(url=banner_url)
-
+    # Footer: Member ID + Created date (PK style)
+    footer_parts = [f"Member ID: {member['id']}"]
     created_iso = member.get("created_at")
     if created_iso:
         try:
             created_dt = datetime.fromisoformat(created_iso)
-            created_formatted = created_dt.strftime("%B %d, %Y")
-            embed.set_footer(text=f"Created At: {created_formatted}")
+            footer_parts.append(f"Created on {created_dt.strftime('%B %d, %Y')}")
         except Exception:
             pass
+    embed.set_footer(text=" | ".join(footer_parts))
 
     return embed
 
