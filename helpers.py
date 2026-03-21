@@ -1325,8 +1325,19 @@ def build_member_profile_embed(member, system=None):
     # --- Section 4: Description/bio ---
     bio_text = str(member.get("description") or "").strip()
     if bio_text:
-        lines = [line.strip() for line in bio_text.split('\n')]
-        bio_text = '\n'.join(line for line in lines if line)
+        BOX_CHARS = set("─━┄┅┈┉╌╍═┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬╭╮╯╰│┃║╎╏┆┇┊┋ ")
+        MAX_LINE = 25
+        bio_lines = []
+        for line in bio_text.split('\n'):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Shorten lines that are purely decorative box-drawing
+            if all(ch in BOX_CHARS for ch in stripped) and len(stripped) > MAX_LINE:
+                # Preserve first and last char, fill middle
+                stripped = stripped[0] + stripped[1] * (MAX_LINE - 2) + stripped[-1]
+            bio_lines.append(stripped)
+        bio_text = '\n'.join(bio_lines)
         embed.add_field(
             name="\u200b",
             value=_truncate(bio_text, 1024),
