@@ -1290,38 +1290,29 @@ def build_member_profile_embed(member, system=None):
     if color_val:
         info_lines.append(f"**Color:** #{str(color_val).lstrip('#')}")
 
-    if info_lines:
-        embed.description = "\n".join(info_lines)
-
-    # --- Section 2: Proxy tags (separate field for divider line) ---
+    # --- Section 2: Proxy tags ---
     proxy_text = render_member_proxy_result(member)
     if proxy_text and proxy_text != "Not set":
-        embed.add_field(
-            name="Proxy tags",
-            value=f"`{_truncate(proxy_text, 1000)}`",
-            inline=False,
-        )
+        info_lines.append("\u2500" * 8)
+        info_lines.append(f"**Proxy tags:**\n`{_truncate(proxy_text, 1000)}`")
 
-    # --- Section 3: Groups (separate field for divider line) ---
+    # --- Section 3: Groups ---
     if system is not None:
         groups_text = format_member_group_lines(system, member)
         if groups_text and groups_text != "None":
-            embed.add_field(
-                name="Groups",
-                value=_truncate(groups_text, 1024),
-                inline=False,
-            )
+            info_lines.append("\u2500" * 8)
+            info_lines.append(f"**Groups:**\n{_truncate(groups_text, 900)}")
 
-    # --- Section 4: Description/bio (separate field for divider line) ---
+    # --- Section 4: Description/bio ---
     bio_text = str(member.get("description") or "").strip()
     if bio_text:
         lines = [line.strip() for line in bio_text.split('\n')]
         bio_text = '\n'.join(line for line in lines if line)
-        embed.add_field(
-            name="Description",
-            value=_truncate(bio_text, 1024),
-            inline=False,
-        )
+        info_lines.append("\u2500" * 8)
+        info_lines.append(bio_text)
+
+    if info_lines:
+        embed.description = _truncate("\n".join(info_lines), 4000)
 
     # Footer: Member ID + Created date (PK style)
     footer_parts = [f"Member ID: {member['id']}"]
