@@ -161,7 +161,7 @@ def _github_save_file(filename, data_obj, retries=6):
         try:
             _, sha = _github_get_file(filename)
             body = json.dumps({
-                "message": f"Auto-update {filename}",
+                "message": f"Auto-update {filename} [skip ci]",
                 "content": encoded,
                 **({"sha": sha} if sha else {}),
             }).encode("utf-8")
