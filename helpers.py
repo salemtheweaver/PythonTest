@@ -1212,6 +1212,8 @@ def build_member_profile_embed(member, system=None):
     except (TypeError, ValueError):
         embed_color = int("00DE9B", 16)
 
+    SEPARATOR = "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+
     def _truncate(text, limit):
         text = str(text or "").strip()
         if len(text) <= limit:
@@ -1236,27 +1238,29 @@ def build_member_profile_embed(member, system=None):
         author_kwargs["icon_url"] = profile_pic_url
     embed.set_author(**author_kwargs)
 
-    # Thumbnail: avatar on the right side
     if profile_pic_url:
         embed.set_thumbnail(url=profile_pic_url)
 
-    # Banner
     banner_url = normalize_embed_image_url(member.get("banner"))
     if banner_url:
         embed.set_image(url=banner_url)
 
-    # --- Inline fields (PK style: small metadata side by side) ---
-
+    # --- Section 1: Basic info (bold labels, values on same line) ---
+    info_lines = []
     if display_name and display_name != member_name:
-        embed.add_field(name="Display Name", value=_truncate(display_name, 1024), inline=True)
-
-    birthday = member.get("birthday")
-    if birthday:
-        embed.add_field(name="Birthdate", value=birthday, inline=True)
-
+        info_lines.append(f"**Display name:** {_truncate(display_name, 250)}")
     pronouns = member.get("pronouns")
     if pronouns:
-        embed.add_field(name="Pronouns", value=_truncate(pronouns, 1024), inline=True)
+        info_lines.append(f"**Pronouns:** {_truncate(pronouns, 250)}")
+    birthday = member.get("birthday")
+    if birthday:
+        info_lines.append(f"**Birthday:** {birthday}")
+    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
+    if tags:
+        info_lines.append(f"**Tags:** {_truncate(tags, 250)}")
+    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
+    if playlist_text:
+        info_lines.append(f"**Playlist:** {playlist_text}")
 
     # Fronting status
     current_front = member.get("current_front")
@@ -1274,44 +1278,46 @@ def build_member_profile_embed(member, system=None):
                             cofront_names.append(members_dict[cofront_id].get("name", cofront_id))
                 if cofront_names:
                     cofront_text = f" (with {', '.join(cofront_names)})"
-            embed.add_field(name="Currently Fronting", value=f"Yes, for {duration}{cofront_text}", inline=True)
+            info_lines.append(f"**Currently fronting:** Yes, for {duration}{cofront_text}")
         except (ValueError, KeyError):
-            embed.add_field(name="Currently Fronting", value="Yes", inline=True)
+            info_lines.append("**Currently fronting:** Yes")
     else:
-        embed.add_field(name="Currently Fronting", value="No", inline=True)
+        info_lines.append("**Currently fronting:** No")
 
     total_front_seconds = calculate_front_duration(member)
     if total_front_seconds > 0:
-        embed.add_field(name="Total Front Time", value=format_duration(total_front_seconds), inline=True)
-
-    proxy_text = render_member_proxy_result(member)
-    if proxy_text and proxy_text != "Not set":
-        embed.add_field(name="Proxy Tags", value=f"`{_truncate(proxy_text, 1000)}`", inline=True)
+        info_lines.append(f"**Total front time:** {format_duration(total_front_seconds)}")
 
     color_val = member.get("color")
     if color_val:
-        embed.add_field(name="Color", value=f"#{str(color_val).lstrip('#')}", inline=True)
+        info_lines.append(f"**Color:** #{str(color_val).lstrip('#')}")
 
-    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
-    if tags:
-        embed.add_field(name="Tags", value=_truncate(tags, 1024), inline=True)
+    # --- Section 2: Proxy tags ---
+    proxy_section = ""
+    proxy_text = render_member_proxy_result(member)
+    if proxy_text and proxy_text != "Not set":
+        proxy_section = SEPARATOR + f"**Proxy tags:**\n`{_truncate(proxy_text, 1000)}`"
 
-    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
-    if playlist_text:
-        embed.add_field(name="Playlist", value=playlist_text, inline=True)
-
-    # --- Non-inline fields (PK style: full-width below) ---
-
+    # --- Section 3: Groups ---
+    groups_section = ""
     if system is not None:
         groups_text = format_member_group_lines(system, member)
         if groups_text and groups_text != "None":
-            embed.add_field(name="Groups", value=_truncate(groups_text, 1024), inline=False)
+            groups_section = SEPARATOR + f"**Groups:**\n{_truncate(groups_text, 900)}"
 
+    # Combine into embed description
+    description = "\n".join(info_lines)
+    description += proxy_section
+    description += groups_section
+
+    embed.description = _truncate(description, 4000)
+
+    # --- Description/bio as a separate field at the bottom ---
     bio_text = str(member.get("description") or "").strip()
     if bio_text:
         lines = [line.strip() for line in bio_text.split('\n')]
         bio_text = '\n'.join(line for line in lines if line)
-        bio_text = _truncate(bio_text, 4000)
+        bio_text = _truncate(bio_text, 1024)
         embed.add_field(name="Description", value=bio_text, inline=False)
 
     # Footer: Member ID + Created date (PK style)
