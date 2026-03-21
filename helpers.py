@@ -1212,8 +1212,6 @@ def build_member_profile_embed(member, system=None):
     except (TypeError, ValueError):
         embed_color = int("00DE9B", 16)
 
-    SEPARATOR = "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
-
     def _truncate(text, limit):
         text = str(text or "").strip()
         if len(text) <= limit:
@@ -1245,7 +1243,7 @@ def build_member_profile_embed(member, system=None):
     if banner_url:
         embed.set_image(url=banner_url)
 
-    # --- Section 1: Basic info (bold labels, values on same line) ---
+    # --- Section 1: Basic info as embed description ---
     info_lines = []
     if display_name and display_name != member_name:
         info_lines.append(f"**Display name:** {_truncate(display_name, 250)}")
@@ -1292,34 +1290,38 @@ def build_member_profile_embed(member, system=None):
     if color_val:
         info_lines.append(f"**Color:** #{str(color_val).lstrip('#')}")
 
-    # --- Section 2: Proxy tags ---
-    proxy_section = ""
+    if info_lines:
+        embed.description = "\n".join(info_lines)
+
+    # --- Section 2: Proxy tags (separate field for divider line) ---
     proxy_text = render_member_proxy_result(member)
     if proxy_text and proxy_text != "Not set":
-        proxy_section = SEPARATOR + f"**Proxy tags:**\n`{_truncate(proxy_text, 1000)}`"
+        embed.add_field(
+            name="Proxy tags",
+            value=f"`{_truncate(proxy_text, 1000)}`",
+            inline=False,
+        )
 
-    # --- Section 3: Groups ---
-    groups_section = ""
+    # --- Section 3: Groups (separate field for divider line) ---
     if system is not None:
         groups_text = format_member_group_lines(system, member)
         if groups_text and groups_text != "None":
-            groups_section = SEPARATOR + f"**Groups:**\n{_truncate(groups_text, 900)}"
+            embed.add_field(
+                name="Groups",
+                value=_truncate(groups_text, 1024),
+                inline=False,
+            )
 
-    # --- Section 4: Description/bio ---
-    bio_section = ""
+    # --- Section 4: Description/bio (separate field for divider line) ---
     bio_text = str(member.get("description") or "").strip()
     if bio_text:
         lines = [line.strip() for line in bio_text.split('\n')]
         bio_text = '\n'.join(line for line in lines if line)
-        bio_section = SEPARATOR + bio_text
-
-    # Combine into embed description
-    description = "\n".join(info_lines)
-    description += proxy_section
-    description += groups_section
-    description += bio_section
-
-    embed.description = _truncate(description, 4000)
+        embed.add_field(
+            name="Description",
+            value=_truncate(bio_text, 1024),
+            inline=False,
+        )
 
     # Footer: Member ID + Created date (PK style)
     footer_parts = [f"Member ID: {member['id']}"]
