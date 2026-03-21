@@ -1252,7 +1252,18 @@ def build_member_profile_embed(member, system=None):
         info_lines.append(f"**Pronouns:** {_truncate(pronouns, 250)}")
     birthday = member.get("birthday")
     if birthday:
-        info_lines.append(f"**Birthday:** {birthday}")
+        # Format birthday as MM/DD regardless of stored format
+        try:
+            parts = str(birthday).strip().split("-")
+            if len(parts) == 3:  # YYYY-MM-DD
+                birthday_display = f"{parts[1]}/{parts[2]}"
+            elif len(parts) == 2:  # MM-DD
+                birthday_display = f"{parts[0]}/{parts[1]}"
+            else:
+                birthday_display = birthday
+        except Exception:
+            birthday_display = birthday
+        info_lines.append(f"**Birthday:** {birthday_display}")
     tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
     if tags:
         info_lines.append(f"**Tags:** {_truncate(tags, 250)}")
@@ -1290,29 +1301,38 @@ def build_member_profile_embed(member, system=None):
     if color_val:
         info_lines.append(f"**Color:** #{str(color_val).lstrip('#')}")
 
-    # --- Section 2: Proxy tags ---
+    if info_lines:
+        embed.description = "\n".join(info_lines)
+
+    # --- Section 2: Proxy tags (field with dash separator) ---
     proxy_text = render_member_proxy_result(member)
     if proxy_text and proxy_text != "Not set":
-        info_lines.append("- - - - -")
-        info_lines.append(f"**Proxy tags:**\n`{_truncate(proxy_text, 1000)}`")
+        embed.add_field(
+            name="Proxy tags",
+            value=f"`{_truncate(proxy_text, 1000)}`",
+            inline=False,
+        )
 
     # --- Section 3: Groups ---
     if system is not None:
         groups_text = format_member_group_lines(system, member)
         if groups_text and groups_text != "None":
-            info_lines.append("- - - - -")
-            info_lines.append(f"**Groups:**\n{_truncate(groups_text, 900)}")
+            embed.add_field(
+                name="Groups",
+                value=_truncate(groups_text, 1024),
+                inline=False,
+            )
 
     # --- Section 4: Description/bio ---
     bio_text = str(member.get("description") or "").strip()
     if bio_text:
         lines = [line.strip() for line in bio_text.split('\n')]
         bio_text = '\n'.join(line for line in lines if line)
-        info_lines.append("- - - - -")
-        info_lines.append(bio_text)
-
-    if info_lines:
-        embed.description = _truncate("\n".join(info_lines), 4000)
+        embed.add_field(
+            name="\u200b",
+            value=_truncate(bio_text, 1024),
+            inline=False,
+        )
 
     # Footer: Member ID + Created date (PK style)
     footer_parts = [f"Member ID: {member['id']}"]
