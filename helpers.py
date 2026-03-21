@@ -1212,7 +1212,7 @@ def build_member_profile_embed(member, system=None):
     except (TypeError, ValueError):
         embed_color = int("00DE9B", 16)
 
-    SEPARATOR = "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+    SEPARATOR = "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
 
     def _truncate(text, limit):
         text = str(text or "").strip()
@@ -1305,20 +1305,21 @@ def build_member_profile_embed(member, system=None):
         if groups_text and groups_text != "None":
             groups_section = SEPARATOR + f"**Groups:**\n{_truncate(groups_text, 900)}"
 
-    # Combine into embed description
-    description = "\n".join(info_lines)
-    description += proxy_section
-    description += groups_section
-
-    embed.description = _truncate(description, 4000)
-
-    # --- Description/bio as a separate field at the bottom ---
+    # --- Section 4: Description/bio ---
+    bio_section = ""
     bio_text = str(member.get("description") or "").strip()
     if bio_text:
         lines = [line.strip() for line in bio_text.split('\n')]
         bio_text = '\n'.join(line for line in lines if line)
-        bio_text = _truncate(bio_text, 1024)
-        embed.add_field(name="Description", value=bio_text, inline=False)
+        bio_section = SEPARATOR + bio_text
+
+    # Combine into embed description
+    description = "\n".join(info_lines)
+    description += proxy_section
+    description += groups_section
+    description += bio_section
+
+    embed.description = _truncate(description, 4000)
 
     # Footer: Member ID + Created date (PK style)
     footer_parts = [f"Member ID: {member['id']}"]
