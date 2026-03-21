@@ -1293,14 +1293,14 @@ def build_member_profile_embed(member, system=None):
     # --- Section 2: Proxy tags ---
     proxy_text = render_member_proxy_result(member)
     if proxy_text and proxy_text != "Not set":
-        info_lines.append("\u2500" * 8)
+        info_lines.append("- - - - -")
         info_lines.append(f"**Proxy tags:**\n`{_truncate(proxy_text, 1000)}`")
 
     # --- Section 3: Groups ---
     if system is not None:
         groups_text = format_member_group_lines(system, member)
         if groups_text and groups_text != "None":
-            info_lines.append("\u2500" * 8)
+            info_lines.append("- - - - -")
             info_lines.append(f"**Groups:**\n{_truncate(groups_text, 900)}")
 
     # --- Section 4: Description/bio ---
@@ -1308,7 +1308,7 @@ def build_member_profile_embed(member, system=None):
     if bio_text:
         lines = [line.strip() for line in bio_text.split('\n')]
         bio_text = '\n'.join(line for line in lines if line)
-        info_lines.append("\u2500" * 8)
+        info_lines.append("- - - - -")
         info_lines.append(bio_text)
 
     if info_lines:
