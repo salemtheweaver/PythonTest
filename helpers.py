@@ -1326,16 +1326,16 @@ def build_member_profile_embed(member, system=None):
     bio_text = str(member.get("description") or "").strip()
     if bio_text:
         BOX_CHARS = set("─━┄┅┈┉╌╍═┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬╭╮╯╰│┃║╎╏┆┇┊┋ ")
-        MAX_LINE = 25
+        MAX_BOX_LINE = 10
         bio_lines = []
         for line in bio_text.split('\n'):
             stripped = line.strip()
             if not stripped:
                 continue
             # Shorten lines that are purely decorative box-drawing
-            if all(ch in BOX_CHARS for ch in stripped) and len(stripped) > MAX_LINE:
+            if all(ch in BOX_CHARS for ch in stripped) and len(stripped) > MAX_BOX_LINE:
                 # Preserve first and last char, fill middle
-                stripped = stripped[0] + stripped[1] * (MAX_LINE - 2) + stripped[-1]
+                stripped = stripped[0] + stripped[1] * (MAX_BOX_LINE - 2) + stripped[-1]
             bio_lines.append(stripped)
         bio_text = '\n'.join(bio_lines)
         embed.add_field(
