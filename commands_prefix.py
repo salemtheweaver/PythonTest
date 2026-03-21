@@ -39,6 +39,7 @@ from helpers import (
     end_focus_mode,
     calc_mode_stats,
     normalize_hex,
+    fit_box_drawing,
     build_member_profile_embed,
     build_subsystem_card_embed,
     resolve_member_identifier,
@@ -414,7 +415,7 @@ async def viewsystemcard_prefix(ctx: commands.Context, target_user_id: str = Non
 
     embed = discord.Embed(
         title=f"{system.get('system_name', 'Unnamed System')} - System Card",
-        description=profile.get("description") or "No description set.",
+        description=fit_box_drawing(profile.get("description") or "") or "No description set.",
         color=embed_color
     )
     embed.add_field(name="Mode", value=system.get("mode", "system").title(), inline=True)

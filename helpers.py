@@ -1205,6 +1205,25 @@ def is_ephemeral_discord_attachment_url(value):
     raw = str(value or "").lower()
     return "ephemeral-attachments" in raw
 
+_BOX_CHARS = set("─━┄┅┈┉╌╍═┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬╭╮╯╰│┃║╎╏┆┇┊┋ ")
+_MAX_BOX_LINE = 10
+
+
+def fit_box_drawing(text):
+    """Shorten decorative box-drawing lines so they fit in mobile embeds."""
+    if not text:
+        return text
+    out = []
+    for line in text.split('\n'):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if all(ch in _BOX_CHARS for ch in stripped) and len(stripped) > _MAX_BOX_LINE:
+            stripped = stripped[0] + stripped[1] * (_MAX_BOX_LINE - 2) + stripped[-1]
+        out.append(stripped)
+    return '\n'.join(out)
+
+
 def build_member_profile_embed(member, system=None):
     """Build a member profile embed matching PluralKit-style layout."""
     try:
@@ -1327,19 +1346,7 @@ def build_member_profile_embed(member, system=None):
     # --- Section 4: Description/bio ---
     bio_text = str(member.get("description") or "").strip()
     if bio_text:
-        BOX_CHARS = set("─━┄┅┈┉╌╍═┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬╭╮╯╰│┃║╎╏┆┇┊┋ ")
-        MAX_BOX_LINE = 10
-        bio_lines = []
-        for line in bio_text.split('\n'):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            # Shorten lines that are purely decorative box-drawing
-            if all(ch in BOX_CHARS for ch in stripped) and len(stripped) > MAX_BOX_LINE:
-                # Preserve first and last char, fill middle
-                stripped = stripped[0] + stripped[1] * (MAX_BOX_LINE - 2) + stripped[-1]
-            bio_lines.append(stripped)
-        bio_text = '\n'.join(bio_lines)
+        bio_text = fit_box_drawing(bio_text)
         embed.add_field(
             name="\u200b",
             value=_truncate(bio_text, 1024),
@@ -1363,7 +1370,7 @@ def build_member_profile_embed(member, system=None):
 
 def build_subsystem_card_embed(subsystem_data, subsystem_id, system):
     """Build a subsystem profile embed."""
-    desc = subsystem_data.get("description", "No description set.")
+    desc = fit_box_drawing(subsystem_data.get("description", "")) or "No description set."
     subsystem_name = subsystem_data.get("subsystem_name", "Unnamed Subsystem")
 
     try:
