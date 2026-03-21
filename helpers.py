@@ -1243,33 +1243,27 @@ def build_member_profile_embed(member, system=None):
     if banner_url:
         embed.set_image(url=banner_url)
 
-    # --- Section 1: Basic info as embed description ---
-    info_lines = []
+    # --- Section 1: Basic info as inline fields (forces wider embed) ---
     if display_name and display_name != member_name:
-        info_lines.append(f"**Display name:** {_truncate(display_name, 250)}")
+        embed.add_field(name="Display Name", value=_truncate(display_name, 1024), inline=True)
+
     pronouns = member.get("pronouns")
     if pronouns:
-        info_lines.append(f"**Pronouns:** {_truncate(pronouns, 250)}")
+        embed.add_field(name="Pronouns", value=_truncate(pronouns, 1024), inline=True)
+
     birthday = member.get("birthday")
     if birthday:
-        # Format birthday as MM/DD regardless of stored format
         try:
             parts = str(birthday).strip().split("-")
-            if len(parts) == 3:  # YYYY-MM-DD
+            if len(parts) == 3:
                 birthday_display = f"{parts[1]}/{parts[2]}"
-            elif len(parts) == 2:  # MM-DD
+            elif len(parts) == 2:
                 birthday_display = f"{parts[0]}/{parts[1]}"
             else:
                 birthday_display = birthday
         except Exception:
             birthday_display = birthday
-        info_lines.append(f"**Birthday:** {birthday_display}")
-    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
-    if tags:
-        info_lines.append(f"**Tags:** {_truncate(tags, 250)}")
-    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
-    if playlist_text:
-        info_lines.append(f"**Playlist:** {playlist_text}")
+        embed.add_field(name="Birthdate", value=birthday_display, inline=True)
 
     # Fronting status
     current_front = member.get("current_front")
@@ -1286,23 +1280,28 @@ def build_member_profile_embed(member, system=None):
                         if cofront_id in members_dict:
                             cofront_names.append(members_dict[cofront_id].get("name", cofront_id))
                 if cofront_names:
-                    cofront_text = f" (with {', '.join(cofront_names)})"
-            info_lines.append(f"**Currently fronting:** Yes, for {duration}{cofront_text}")
+                    cofront_text = f"\n(with {', '.join(cofront_names)})"
+            embed.add_field(name="Currently Fronting", value=f"Yes, for {duration}{cofront_text}", inline=True)
         except (ValueError, KeyError):
-            info_lines.append("**Currently fronting:** Yes")
+            embed.add_field(name="Currently Fronting", value="Yes", inline=True)
     else:
-        info_lines.append("**Currently fronting:** No")
+        embed.add_field(name="Currently Fronting", value="No", inline=True)
 
     total_front_seconds = calculate_front_duration(member)
     if total_front_seconds > 0:
-        info_lines.append(f"**Total front time:** {format_duration(total_front_seconds)}")
+        embed.add_field(name="Total Front Time", value=format_duration(total_front_seconds), inline=True)
+
+    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
+    if tags:
+        embed.add_field(name="Tags", value=_truncate(tags, 1024), inline=True)
+
+    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
+    if playlist_text:
+        embed.add_field(name="Playlist", value=playlist_text, inline=True)
 
     color_val = member.get("color")
     if color_val:
-        info_lines.append(f"**Color:** #{str(color_val).lstrip('#')}")
-
-    if info_lines:
-        embed.description = "\n".join(info_lines)
+        embed.add_field(name="Color", value=f"#{str(color_val).lstrip('#')}", inline=True)
 
     # --- Section 2: Proxy tags (field with dash separator) ---
     proxy_text = render_member_proxy_result(member)
