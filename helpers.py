@@ -1212,7 +1212,7 @@ def build_member_profile_embed(member, system=None):
     except (TypeError, ValueError):
         embed_color = int("00DE9B", 16)
 
-    SEPARATOR = "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
+    SEPARATOR = "\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
 
     def _truncate(text, limit):
         text = str(text or "").strip()
