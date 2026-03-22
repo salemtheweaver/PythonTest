@@ -649,19 +649,32 @@ async def editsubsystemcard(
             await interaction.response.send_message(str(e), ephemeral=True)
             return
 
+    warnings = []
+
     if clear_profile_pic:
         subsystem_data.pop("profile_pic", None)
     elif profile_pic:
         subsystem_data["profile_pic"] = profile_pic.url
+        if is_ephemeral_discord_attachment_url(profile_pic.url):
+            warnings.append("profile pic")
 
     if clear_banner:
         subsystem_data.pop("banner", None)
     elif banner:
         subsystem_data["banner"] = banner.url
+        if is_ephemeral_discord_attachment_url(banner.url):
+            warnings.append("banner")
 
     save_systems()
     embed = build_subsystem_card_embed(subsystem_data, subsystem_id, system)
-    await interaction.response.send_message("Subsystem card updated.", embed=embed, ephemeral=True)
+    msg = "Subsystem card updated."
+    if warnings:
+        joined = ", ".join(warnings)
+        msg += (
+            f"\n\u26a0\ufe0f Discord provided an expiring attachment URL for {joined}. "
+            "If images disappear later, try uploading via a direct image URL or re-uploading."
+        )
+    await interaction.response.send_message(msg, embed=embed, ephemeral=True)
 
 
 # /listsubsystems — List all subsystems with IDs and member counts
@@ -1000,12 +1013,13 @@ async def viewsystemcard(
 
     embed = discord.Embed(
         title=f"{system.get('system_name', 'Unnamed System')} - System Card",
-        description=fit_box_drawing(profile.get("description") or "") or "No description set.",
         color=embed_color
     )
     embed.add_field(name="Mode", value=system.get("mode", "system").title(), inline=True)
     embed.add_field(name="Collective Pronouns", value=profile.get("collective_pronouns") or "Not set", inline=True)
     embed.add_field(name="System Tag", value=get_system_proxy_tag(system) or "Not set", inline=True)
+    desc_text = fit_box_drawing(profile.get("description") or "") or "No description set."
+    embed.add_field(name="Description", value=desc_text, inline=False)
 
     if profile.get("profile_pic"):
         embed.set_thumbnail(url=profile["profile_pic"])
@@ -1053,18 +1067,31 @@ async def editsystemcard(
             await interaction.response.send_message(str(e), ephemeral=True)
             return
 
+    warnings = []
+
     if clear_profile_pic:
         profile["profile_pic"] = None
     elif profile_pic:
         profile["profile_pic"] = profile_pic.url
+        if is_ephemeral_discord_attachment_url(profile_pic.url):
+            warnings.append("profile pic")
 
     if clear_banner:
         profile["banner"] = None
     elif banner:
         profile["banner"] = banner.url
+        if is_ephemeral_discord_attachment_url(banner.url):
+            warnings.append("banner")
 
     save_systems()
-    await interaction.response.send_message("System card updated.", ephemeral=True)
+    msg = "System card updated."
+    if warnings:
+        joined = ", ".join(warnings)
+        msg += (
+            f"\n\u26a0\ufe0f Discord provided an expiring attachment URL for {joined}. "
+            "If images disappear later, try uploading via a direct image URL or re-uploading."
+        )
+    await interaction.response.send_message(msg, ephemeral=True)
 
 # /serveridentity — Set server-specific display name, tag, or icon
 @tree.command(name="serveridentity", description="Set server-specific system tag, display name, or icon for this server")
@@ -1118,7 +1145,10 @@ async def serveridentity(
         changed.append("Server icon cleared.")
     elif profile_pic is not None:
         server_app["profile_pic"] = profile_pic.url
-        changed.append("Server icon updated.")
+        msg = "Server icon updated."
+        if is_ephemeral_discord_attachment_url(profile_pic.url):
+            msg += " \u26a0\ufe0f Discord provided an expiring URL — image may disappear later."
+        changed.append(msg)
 
     if not server_app:
         overrides.pop(guild_key, None)
@@ -1249,7 +1279,10 @@ async def servermemberidentity(
         changed.append("Member server icon cleared.")
     elif profile_pic is not None:
         override["profile_pic"] = profile_pic.url
-        changed.append("Member server icon updated.")
+        msg = "Member server icon updated."
+        if is_ephemeral_discord_attachment_url(profile_pic.url):
+            msg += " \u26a0\ufe0f Discord provided an expiring URL — image may disappear later."
+        changed.append(msg)
 
     if not override:
         by_guild.pop(member_key, None)
@@ -1416,7 +1449,16 @@ async def addmember(
         "front_history": []
     }
     save_systems()
-    await interaction.followup.send(f"Member **{name}** added to {get_scope_label(subsystem_id)}.\nID `{member_id}`", ephemeral=True)
+    ephemeral_warnings = []
+    if profile_pic and is_ephemeral_discord_attachment_url(profile_pic.url):
+        ephemeral_warnings.append("profile pic")
+    if banner and is_ephemeral_discord_attachment_url(banner.url):
+        ephemeral_warnings.append("banner")
+    msg = f"Member **{name}** added to {get_scope_label(subsystem_id)}.\nID `{member_id}`"
+    if ephemeral_warnings:
+        joined = ", ".join(ephemeral_warnings)
+        msg += f"\n\u26a0\ufe0f Discord provided an expiring URL for {joined}. If images disappear later, re-upload using `Cor;editmemberimages`."
+    await interaction.followup.send(msg, ephemeral=True)
 
 
 # /movemember — Move a member between main system and subsystems
@@ -4010,12 +4052,17 @@ async def editmember(
         except ValueError:
             await interaction.response.send_message("Invalid HEX color.", ephemeral=True)
             return
+    ephemeral_warnings = []
     if profile_pic:
         member["profile_pic"] = profile_pic.url
         updated_fields.append("profile picture")
+        if is_ephemeral_discord_attachment_url(profile_pic.url):
+            ephemeral_warnings.append("profile pic")
     if banner:
         member["banner"] = banner.url
         updated_fields.append("banner")
+        if is_ephemeral_discord_attachment_url(banner.url):
+            ephemeral_warnings.append("banner")
     if clear_proxy_tag:
         set_member_proxy_formats(member, [])
         updated_fields.append("proxy tag cleared")
@@ -4043,15 +4090,27 @@ async def editmember(
             save_systems()
             updated_fields.append("tags")
             summary = ", ".join(updated_fields) if updated_fields else "no fields"
-            await interaction.followup.send(f"Member **{member['name']}** updated: {summary}.")
+            msg = f"Member **{member['name']}** updated: {summary}."
+            if ephemeral_warnings:
+                joined = ", ".join(ephemeral_warnings)
+                msg += f"\n\u26a0\ufe0f Discord provided an expiring URL for {joined}. If images disappear later, re-upload using `Cor;editmemberimages`."
+            await interaction.followup.send(msg)
         else:
             save_systems()
             summary = ", ".join(updated_fields) if updated_fields else "no fields"
-            await interaction.followup.send(f"Tag selection timed out. Other changes were still saved: {summary}.")
+            msg = f"Tag selection timed out. Other changes were still saved: {summary}."
+            if ephemeral_warnings:
+                joined = ", ".join(ephemeral_warnings)
+                msg += f"\n\u26a0\ufe0f Discord provided an expiring URL for {joined}. If images disappear later, re-upload using `Cor;editmemberimages`."
+            await interaction.followup.send(msg)
     else:
         save_systems()
         summary = ", ".join(updated_fields) if updated_fields else "no fields"
-        await interaction.response.send_message(f"Member **{member['name']}** updated: {summary}.")
+        msg = f"Member **{member['name']}** updated: {summary}."
+        if ephemeral_warnings:
+            joined = ", ".join(ephemeral_warnings)
+            msg += f"\n\u26a0\ufe0f Discord provided an expiring URL for {joined}. If images disappear later, re-upload using `Cor;editmemberimages`."
+        await interaction.response.send_message(msg)
 
 
 # /addmembertag — Add an additional proxy format to a member

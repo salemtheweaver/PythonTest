@@ -257,6 +257,8 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 - Birthday reminder `sent_keys` now always persisted after reminders run
 - Member card layout iterations (box-drawing, embed fields, mobile formatting)
 - Member list shows public members without system-level gate
+- `help` command now bypasses registration and singlet gate checks
+- Added `railway.toml` with watch patterns so `systems/*.json` data saves don't trigger Railway redeployments
 
 ### Versioning Convention
 - **MAJOR**: Breaking changes to core functionality
@@ -296,6 +298,7 @@ d:\Programming\Discord bot\
 ├── requirements.txt           Dependencies
 ├── runtime.txt                Python version (3.12.10)
 ├── Procfile                   Railway deployment
+├── railway.toml               Railway config (watch patterns to ignore data file commits)
 ├── .gitignore                 Ignores .env, __pycache__, cortex_members.json
 ├── cortex_members.json        Local data cache (GitHub synced)
 ├── tags.json                  Shared tag system

@@ -1382,7 +1382,6 @@ def build_subsystem_card_embed(subsystem_data, subsystem_id, system):
 
     embed = discord.Embed(
         title=f"{subsystem_name} - Subsystem Card",
-        description=desc,
         color=embed_color
     )
 
@@ -1391,14 +1390,16 @@ def build_subsystem_card_embed(subsystem_data, subsystem_id, system):
     member_count = len(subsystem_data.get("members", {}))
     embed.add_field(name="Members", value=str(member_count), inline=True)
 
+    if system:
+        system_name = system.get("system_name", "Unnamed System")
+        embed.add_field(name="Parent System", value=system_name, inline=True)
+
+    embed.add_field(name="Description", value=desc, inline=False)
+
     if subsystem_data.get("profile_pic"):
         embed.set_thumbnail(url=subsystem_data["profile_pic"])
     if subsystem_data.get("banner"):
         embed.set_image(url=subsystem_data["banner"])
-
-    if system:
-        system_name = system.get("system_name", "Unnamed System")
-        embed.add_field(name="Parent System", value=system_name, inline=True)
 
     return embed
 
