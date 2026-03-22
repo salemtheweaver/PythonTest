@@ -289,8 +289,8 @@ async def birthday_reminder_loop():
             sent_keys.pop(key, None)
             any_updates = True
 
-    if any_updates:
-        save_systems()
+    # Always save after processing each system to guarantee persistence of sent_keys
+    save_systems()
 
 
 @birthday_reminder_loop.before_loop
