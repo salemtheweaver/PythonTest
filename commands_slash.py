@@ -417,6 +417,7 @@ class MultiMemberView(discord.ui.View):
 # Slash Commands
 # =============================================
 
+# /register — Register a new system or singlet profile
 @tree.command(name="register", description="Register as a system or singlet profile")
 @app_commands.choices(mode=[
     app_commands.Choice(name="System", value="system"),
@@ -510,7 +511,7 @@ async def register(
             ephemeral=True
         )
 
-# Create subsystem command
+# /createsubsystem — Create a new subsystem under your main system
 @tree.command(name="createsubsystem", description="Create a subsystem under your main system")
 async def createsubsystem(
     interaction: discord.Interaction,
@@ -550,6 +551,7 @@ async def createsubsystem(
     )
 
 
+# /editsubsystem — Rename a subsystem
 @tree.command(name="editsubsystem", description="Edit a subsystem's name")
 async def editsubsystem(
 
@@ -580,6 +582,7 @@ async def editsubsystem(
     )
 
 
+# /viewsubsystemcard — Display a subsystem's profile card embed
 @tree.command(name="viewsubsystemcard", description="View a subsystem's profile card")
 async def viewsubsystemcard(
     interaction: discord.Interaction,
@@ -609,6 +612,7 @@ async def viewsubsystemcard(
     await interaction.response.send_message(embed=embed, ephemeral=not show_to_others)
 
 
+# /editsubsystemcard — Edit a subsystem's description, color, or images
 @tree.command(name="editsubsystemcard", description="Edit a subsystem's profile card")
 async def editsubsystemcard(
     interaction: discord.Interaction,
@@ -660,6 +664,7 @@ async def editsubsystemcard(
     await interaction.response.send_message("Subsystem card updated.", embed=embed, ephemeral=True)
 
 
+# /listsubsystems — List all subsystems with IDs and member counts
 @tree.command(name="listsubsystems", description="List your subsystems with their IDs")
 async def listsubsystems(
     interaction: discord.Interaction,
@@ -679,7 +684,10 @@ async def listsubsystems(
     subsystems = system.get("subsystems", {})
 
     if not subsystems:
-        await interaction.response.send_message("You have no subsystems yet. Use /createsubsystem to add one.", ephemeral=True)
+        if str(target_owner_id) == str(requester_id):
+            await interaction.response.send_message("You have no subsystems yet. Use /createsubsystem to add one.", ephemeral=True)
+        else:
+            await interaction.response.send_message("This system has no subsystems.", ephemeral=True)
         return
 
     lines = []
@@ -698,6 +706,7 @@ async def listsubsystems(
 # -----------------------------
 # System tag
 # -----------------------------
+# /systemtag — Set, clear, or view the system-level proxy tag
 @tree.command(name="systemtag", description="Set, clear, or view your system-level proxy tag")
 async def systemtag(interaction: discord.Interaction, tag: str = None, clear: bool = False):
     user_id = interaction.user.id
@@ -801,6 +810,7 @@ async def alterprivacy(
     )
 
 
+# /bulkalterprivacy — Set privacy level for multiple members at once
 @tree.command(name="bulkalterprivacy", description="Set privacy level for multiple members at once")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def bulkalterprivacy(
@@ -861,6 +871,7 @@ async def bulkalterprivacy(
 # =============================================
 import io
 
+# /exportsystem — Export the entire system as a downloadable JSON file
 @tree.command(name="exportsystem", description="Export your entire system (including subsystems and members) as a JSON file")
 async def exportsystem(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -884,6 +895,7 @@ async def exportsystem(interaction: discord.Interaction):
         ephemeral=True
     )
 
+# /importsystem — Import a system from a previously exported JSON file
 @tree.command(name="importsystem", description="Import a system from a JSON file (including subsystems and members)")
 async def importsystem(interaction: discord.Interaction, file: discord.Attachment):
     user_id = interaction.user.id
@@ -963,6 +975,7 @@ async def privacystatus(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+# /viewsystemcard — Display the system profile card embed
 @tree.command(name="viewsystemcard", description="View your system profile card")
 async def viewsystemcard(
     interaction: discord.Interaction,
@@ -1001,6 +1014,7 @@ async def viewsystemcard(
 
     await interaction.response.send_message(embed=embed, ephemeral=not show_to_others)
 
+# /editsystemcard — Edit system name, pronouns, description, color, or images
 @tree.command(name="editsystemcard", description="Edit your system profile card details")
 async def editsystemcard(
     interaction: discord.Interaction,
@@ -1052,6 +1066,7 @@ async def editsystemcard(
     save_systems()
     await interaction.response.send_message("System card updated.", ephemeral=True)
 
+# /serveridentity — Set server-specific display name, tag, or icon
 @tree.command(name="serveridentity", description="Set server-specific system tag, display name, or icon for this server")
 async def serveridentity(
     interaction: discord.Interaction,
@@ -1112,8 +1127,8 @@ async def serveridentity(
         current = get_server_appearance(system, interaction.guild_id)
         lines = [
             "**Server identity overrides for this server:**",
-            f"Display name: **{current.get('display_name') if current else None or 'none (uses global)'}**",
-            f"System tag: **{current.get('system_tag') if current else None or 'none (uses global)'}**",
+            f"Display name: **{(current.get('display_name') if current else None) or 'none (uses global)'}**",
+            f"System tag: **{(current.get('system_tag') if current else None) or 'none (uses global)'}**",
             f"Icon: {'set' if (current and current.get('profile_pic')) else 'none (uses global)'}",
         ]
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
@@ -1122,6 +1137,7 @@ async def serveridentity(
     save_systems()
     await interaction.response.send_message("\n".join(changed), ephemeral=True)
 
+# /serveridentitystatus — View effective system identity for this server
 @tree.command(name="serveridentitystatus", description="View effective system tag, display name, and icon for this server")
 async def serveridentitystatus(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -1164,6 +1180,7 @@ async def serveridentitystatus(interaction: discord.Interaction):
     ]
     await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
+# /servermemberidentity — Set server-specific name, tag, or icon for a member
 @tree.command(name="servermemberidentity", description="Set server-specific identity overrides for one member")
 async def servermemberidentity(
     interaction: discord.Interaction,
@@ -1253,6 +1270,7 @@ async def servermemberidentity(
     save_systems()
     await interaction.response.send_message("\n".join(changed), ephemeral=True)
 
+# /servermemberidentitystatus — View effective server identity for a member
 @tree.command(name="servermemberidentitystatus", description="View effective server-specific identity values for one member")
 async def servermemberidentitystatus(
     interaction: discord.Interaction,
@@ -1327,6 +1345,7 @@ async def servermemberidentitystatus(
 # -----------------------------
 # Add member
 # -----------------------------
+# /addmember — Add a new member with profile info and tags
 @tree.command(name="addmember", description="Add a member to a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def addmember(
@@ -1400,6 +1419,7 @@ async def addmember(
     await interaction.followup.send(f"Member **{name}** added to {get_scope_label(subsystem_id)}.\nID `{member_id}`", ephemeral=True)
 
 
+# /movemember — Move a member between main system and subsystems
 @tree.command(name="movemember", description="Move an existing member between main system and subsystems")
 @app_commands.autocomplete(from_subsystem_id=subsystem_id_autocomplete)
 @app_commands.autocomplete(to_subsystem_id=subsystem_id_autocomplete)
@@ -1432,6 +1452,7 @@ async def movemember(
     )
 
 
+# /importpluralkit — Import members from PluralKit using a token
 @tree.command(name="importpluralkit", description="Import members from your PluralKit system")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 @app_commands.describe(
@@ -1646,6 +1667,7 @@ async def importpluralkit(
 # Message to member
 # Switch member
 # -----------------------------
+# /messageto — Send an internal inbox message to a member
 @tree.command(name="messageto", description="Send a message to a member in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def messageto(interaction: discord.Interaction, member_id: str, message: str, subsystem_id: str = None):
@@ -1685,6 +1707,7 @@ async def messageto(interaction: discord.Interaction, member_id: str, message: s
 # -----------------------------
 # Cross-system inbox (Phase 1)
 # -----------------------------
+# /allowexternal — Toggle receiving external messages from other systems
 @tree.command(name="allowexternal", description="Enable or disable receiving messages from other systems")
 async def allowexternal(interaction: discord.Interaction, enabled: bool):
     user_id = interaction.user.id
@@ -1704,6 +1727,7 @@ async def allowexternal(interaction: discord.Interaction, enabled: bool):
     status = "enabled" if enabled else "disabled"
     await interaction.response.send_message(f"External messages are now **{status}**.", ephemeral=True)
 
+# /externalprivacy — Set delivery mode for external inbox messages
 @tree.command(name="externalprivacy", description="Set how external inbox messages are shown when switching")
 @app_commands.choices(mode=[
     app_commands.Choice(name="Public (show in switch output)", value="public"),
@@ -1727,6 +1751,7 @@ async def externalprivacy(interaction: discord.Interaction, mode: str):
     save_systems()
     await interaction.response.send_message(f"External delivery mode set to **{mode}**.", ephemeral=True)
 
+# /externalstatus — View external messaging safety and limit settings
 @tree.command(name="externalstatus", description="View external messaging safety settings")
 async def externalstatus(interaction: discord.Interaction, show_to_others: bool = False):
     user_id = interaction.user.id
@@ -1921,6 +1946,7 @@ async def friendusers(interaction: discord.Interaction):
         return
     await interaction.response.send_message("Friend users:\n" + "\n".join([f"- {u}" for u in friends]), ephemeral=True)
 
+# /muteuser — Silently ignore external messages from a user
 @tree.command(name="muteuser", description="Mute a Discord user for external messages (quietly ignore)")
 async def muteuser(interaction: discord.Interaction, user_id: str):
     owner_id = interaction.user.id
@@ -1941,6 +1967,7 @@ async def muteuser(interaction: discord.Interaction, user_id: str):
         save_systems()
     await interaction.response.send_message(f"Muted user ID `{parsed}`.", ephemeral=True)
 
+# /unmuteuser — Remove a user from the external messages mute list
 @tree.command(name="unmuteuser", description="Unmute a Discord user for external messages")
 async def unmuteuser(interaction: discord.Interaction, user_id: str):
     owner_id = interaction.user.id
@@ -1974,6 +2001,7 @@ async def mutedusers(interaction: discord.Interaction):
         return
     await interaction.response.send_message("Muted users:\n" + "\n".join([f"- {u}" for u in muted]), ephemeral=True)
 
+# /tempblockuser — Temporarily block a user from external messaging
 @tree.command(name="tempblockuser", description="Temporarily block a user from external messaging")
 async def tempblockuser(interaction: discord.Interaction, user_id: str, hours: int = 24):
     owner_id = interaction.user.id
@@ -2086,6 +2114,7 @@ async def recentexternal(interaction: discord.Interaction, limit: int = 10):
         lines.append(f"- {ts} | {action} | sender={sender} {details}")
     await interaction.response.send_message("Recent external events:\n" + "\n".join(lines), ephemeral=True)
 
+# /externalquiethours — Configure quiet hours for external DM delivery
 @tree.command(name="externalquiethours", description="Configure quiet hours for external DM detail delivery")
 async def externalquiethours(interaction: discord.Interaction, enabled: bool, start_hour: int = 23, end_hour: int = 7):
     user_id = interaction.user.id
@@ -2105,6 +2134,7 @@ async def externalquiethours(interaction: discord.Interaction, enabled: bool, st
         ephemeral=True
     )
 
+# /externalretention — Set how many days external inbox messages are kept
 @tree.command(name="externalretention", description="Set external inbox retention period in days")
 async def externalretention(interaction: discord.Interaction, days: int):
     user_id = interaction.user.id
@@ -2121,6 +2151,7 @@ async def externalretention(interaction: discord.Interaction, days: int):
     save_systems()
     await interaction.response.send_message(f"External retention set to {days} day(s).", ephemeral=True)
 
+# /reportexternal — Report an external sender for abuse
 @tree.command(name="reportexternal", description="Report abuse from an external sender")
 async def reportexternal(interaction: discord.Interaction, user_id: str, reason: str):
     reporter_id = interaction.user.id
@@ -2256,6 +2287,7 @@ async def modappeal(interaction: discord.Interaction, message: str):
     save_systems()
     await interaction.response.send_message("Your appeal was submitted.", ephemeral=True)
 
+# /blockuser — Block a user from sending external messages to you
 @tree.command(name="blockuser", description="Block a Discord user from sending your system external messages")
 async def blockuser(interaction: discord.Interaction, user_id: str):
     owner_id = interaction.user.id
@@ -2289,6 +2321,7 @@ async def blockuser(interaction: discord.Interaction, user_id: str):
     save_systems()
     await interaction.response.send_message(f"Blocked user ID `{parsed_user_id}`.", ephemeral=True)
 
+# /unblockuser — Remove a user from the external messages block list
 @tree.command(name="unblockuser", description="Unblock a Discord user for external messages")
 async def unblockuser(interaction: discord.Interaction, user_id: str):
     owner_id = interaction.user.id
@@ -2340,6 +2373,7 @@ async def blockedusers(interaction: discord.Interaction):
         ephemeral=True
     )
 
+# /sendexternal — Send an inbox message to a member in another system
 @tree.command(name="sendexternal", description="Send an inbox message to a member in another system")
 async def sendexternal(
     interaction: discord.Interaction,
@@ -2501,6 +2535,7 @@ async def sendexternal(
 # -----------------------------
 # Switch member
 # -----------------------------
+# /switchmember — Log a member as currently fronting and deliver inbox
 @tree.command(name="switchmember", description="Log a member as fronting in a subsystem")
 @app_commands.autocomplete(member_id=switchmember_member_id_autocomplete)
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
@@ -2582,6 +2617,7 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
 # -----------------------------
 # Co-front member
 # -----------------------------
+# /cofrontmember — Interactively select co-fronting members
 @tree.command(name="cofrontmember", description="Select co-fronting members interactively in a subsystem")
 @app_commands.describe(member="Member name or ID", subsystem_id="Subsystem to search (leave blank to search entire system)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
@@ -2633,6 +2669,7 @@ async def cofrontmember(interaction: discord.Interaction, member: str, subsystem
 # -----------------------------
 # Autoproxy
 # -----------------------------
+# /globalautoproxy — Set global autoproxy mode (off, front, or latch)
 @tree.command(name="globalautoproxy", description="Set global autoproxy mode: off, front, or latch")
 @app_commands.choices(mode=[
     app_commands.Choice(name="Off", value="off"),
@@ -2664,6 +2701,7 @@ async def globalautoproxy(interaction: discord.Interaction, mode: str):
 
     await interaction.response.send_message(message, ephemeral=True)
 
+# /autoproxy — Set per-server autoproxy mode or inherit global
 @tree.command(name="autoproxy", description="Set per-server autoproxy mode: off, front, latch, or inherit global")
 @app_commands.choices(mode=[
     app_commands.Choice(name="Inherit Global", value="inherit"),
@@ -2710,6 +2748,7 @@ async def autoproxy_server(interaction: discord.Interaction, mode: str):
 
     await interaction.response.send_message(message, ephemeral=True)
 
+# /autoproxystatus — View effective global and server autoproxy settings
 @tree.command(name="autoproxystatus", description="View effective global/server autoproxy settings")
 async def autoproxystatus(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -2743,6 +2782,7 @@ async def autoproxystatus(interaction: discord.Interaction):
 # -----------------------------
 # Front reminders
 # -----------------------------
+# /frontreminders — Toggle DM reminders for long fronting sessions
 @tree.command(name="frontreminders", description="Enable or disable DM reminders for long fronting sessions")
 async def frontreminders(interaction: discord.Interaction, enabled: bool):
     user_id = interaction.user.id
@@ -2766,6 +2806,7 @@ async def frontreminders(interaction: discord.Interaction, enabled: bool):
         ephemeral=True
     )
 
+# /setfrontreminderhours — Set the front duration threshold for DM reminders
 @tree.command(name="setfrontreminderhours", description="Set the DM reminder threshold in hours")
 async def setfrontreminderhours(interaction: discord.Interaction, hours: int):
     user_id = interaction.user.id
@@ -2792,6 +2833,7 @@ async def setfrontreminderhours(interaction: discord.Interaction, hours: int):
         ephemeral=True
     )
 
+# /frontreminderstatus — View current front reminder settings
 @tree.command(name="frontreminderstatus", description="View your DM front reminder settings")
 async def frontreminderstatus(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -2813,6 +2855,7 @@ async def frontreminderstatus(interaction: discord.Interaction):
     )
 
 
+# /birthdayreminders — Toggle DM birthday reminders on or off
 @tree.command(name="birthdayreminders", description="Enable or disable DM birthday reminders")
 async def birthdayreminders(interaction: discord.Interaction, enabled: bool):
     user_id = interaction.user.id
@@ -2839,6 +2882,7 @@ async def birthdayreminders(interaction: discord.Interaction, enabled: bool):
     )
 
 
+# /setbirthdayreminderdays — Set how many days before birthdays to remind
 @tree.command(name="setbirthdayreminderdays", description="Set DM birthday reminder offsets in days (comma-separated)")
 async def setbirthdayreminderdays(interaction: discord.Interaction, days: str):
     user_id = interaction.user.id
@@ -2894,6 +2938,7 @@ async def setbirthdayreminderdays(interaction: discord.Interaction, days: str):
     )
 
 
+# /birthdayreminderstatus — View current birthday reminder settings
 @tree.command(name="birthdayreminderstatus", description="View your DM birthday reminder settings")
 async def birthdayreminderstatus(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -2919,6 +2964,7 @@ async def birthdayreminderstatus(interaction: discord.Interaction):
 # -----------------------------
 # Check-ins
 # -----------------------------
+# /checkin — Log a mood rating and energy level check-in
 @tree.command(name="checkin", description="Log a system check-in with mood rating and energy")
 @app_commands.choices(energy=[
     app_commands.Choice(name="Very Low", value="very_low"),
@@ -2971,6 +3017,7 @@ async def checkin(interaction: discord.Interaction, rating: int, energy: str, no
         ephemeral=True
     )
 
+# /weeklymoodsummary — Toggle weekly mood summary DMs on or off
 @tree.command(name="weeklymoodsummary", description="Enable or disable weekly mood summary DMs")
 async def weeklymoodsummary(interaction: discord.Interaction, enabled: bool):
     user_id = interaction.user.id
@@ -2991,6 +3038,7 @@ async def weeklymoodsummary(interaction: discord.Interaction, enabled: bool):
     status = "enabled" if enabled else "disabled"
     await interaction.response.send_message(f"Weekly mood summary DMs are now **{status}**.", ephemeral=True)
 
+# /checkinstatus — View check-in settings and recent mood trend
 @tree.command(name="checkinstatus", description="View your current check-in settings and trend")
 async def checkinstatus(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -3029,6 +3077,7 @@ async def mode_name_autocomplete(interaction: discord.Interaction, current: str)
     filtered = [c for c in choices if current.lower() in c.lower()]
     return [app_commands.Choice(name=c.title(), value=c) for c in filtered[:25]]
 
+# /setmode — Set or clear the current focus mode (singlet only)
 @tree.command(name="setmode", description="Set your current focus mode (singlet only)")
 @app_commands.autocomplete(mode_name=mode_name_autocomplete)
 async def setmode(
@@ -3082,6 +3131,7 @@ async def setmode(
         f"Focus mode set to **{mode_clean.title()}**.", ephemeral=True
     )
 
+# /currentmode — View the active focus mode and elapsed time
 @tree.command(name="currentmode", description="View your current focus mode (singlet only)")
 async def currentmode(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -3113,6 +3163,7 @@ async def currentmode(interaction: discord.Interaction):
         ephemeral=True,
     )
 
+# /modestats — View time breakdown per focus mode over a period
 @tree.command(name="modestats", description="View time spent in each focus mode (singlet only)")
 async def modestats(interaction: discord.Interaction, days: int = 30):
     user_id = interaction.user.id
@@ -3155,6 +3206,7 @@ async def modestats(interaction: discord.Interaction, days: int = 30):
     embed.set_footer(text=f"Total tracked: {format_duration(total_all)}")
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+# /settimezone — Set the system timezone using an IANA name
 @tree.command(name="settimezone", description="Set your system timezone (IANA, e.g. America/New_York)")
 @app_commands.autocomplete(timezone_name=timezone_autocomplete)
 async def settimezone(interaction: discord.Interaction, timezone_name: str):
@@ -3194,6 +3246,7 @@ async def settimezone(interaction: discord.Interaction, timezone_name: str):
     save_systems()
     await interaction.response.send_message(f"Timezone set to **{normalized}**.", ephemeral=True)
 
+# /timezonestatus — View the current system timezone
 @tree.command(name="timezonestatus", description="View your current system timezone")
 async def timezonestatus(interaction: discord.Interaction, show_to_others: bool = False):
     user_id = interaction.user.id
@@ -3212,6 +3265,7 @@ async def timezonestatus(interaction: discord.Interaction, show_to_others: bool 
         ephemeral=not show_to_others
     )
 
+# /setstatus — Set or clear a status message for a fronting member
 @tree.command(name="setstatus", description="Set or clear a front status for a currently fronting member")
 @app_commands.autocomplete(member_id=switchmember_member_id_autocomplete)
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
@@ -3290,6 +3344,7 @@ async def setstatus(
 # -----------------------------
 # Current fronts
 # -----------------------------
+# /currentfronts — View who is currently fronting across scopes
 @tree.command(name="currentfronts", description="View current fronting members in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def currentfronts(interaction: discord.Interaction, subsystem_id: str = None):
@@ -3341,6 +3396,7 @@ async def currentfronts(interaction: discord.Interaction, subsystem_id: str = No
 # -----------------------------
 # Front history
 # -----------------------------
+# /fronthistory — View paginated front history for a scope
 @tree.command(name="fronthistory", description="View recent front history for a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def fronthistory(interaction: discord.Interaction, subsystem_id: str = None):
@@ -3448,6 +3504,7 @@ async def fronthistory(interaction: discord.Interaction, subsystem_id: str = Non
 # -----------------------------
 # Front duration statistics
 # -----------------------------
+# /frontstats — Show front time totals and percentages per member
 @tree.command(name="frontstats", description="Show front duration statistics for members in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def frontstats(interaction: discord.Interaction, subsystem_id: str = None):
@@ -3519,6 +3576,7 @@ async def frontstats(interaction: discord.Interaction, subsystem_id: str = None)
 
     await interaction.response.send_message(embed=get_embed(0), view=view)
 
+# /switchpatterns — Analyze switch pairs, co-fronts, and time-of-day patterns
 @tree.command(name="switchpatterns", description="Show switch pair, co-front, and time-of-day fronting patterns")
 async def switchpatterns(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -3638,6 +3696,7 @@ async def switchpatterns(interaction: discord.Interaction):
 # -----------------------------
 # Member statistics
 # -----------------------------
+# /memberstats — View fronting stats for a specific member
 @tree.command(name="memberstats", description="View fronting statistics for a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def memberstats(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
@@ -3658,13 +3717,10 @@ async def memberstats(interaction: discord.Interaction, member_id: str, subsyste
 
     member = members_dict[member_id]
 
-    primary = member.get("primary_front_time", 0)
-    cofront = member.get("cofront_time", 0)
-    total = primary + cofront
-
+    # Compute front time from front_history
+    total_front_seconds = calculate_front_duration(member)
     sessions = len(member.get("front_history", []))
-
-    avg = primary / sessions if sessions else 0
+    avg = total_front_seconds / sessions if sessions else 0
 
     longest = 0
     last_front = None
@@ -3686,18 +3742,19 @@ async def memberstats(interaction: discord.Interaction, member_id: str, subsyste
             if not last_front or start > last_front:
                 last_front = start
 
+    try:
+        embed_color = int(str(member.get("color", "FFFFFF")).lstrip("#"), 16)
+    except (ValueError, TypeError):
+        embed_color = int("00DE9B", 16)
+
     embed = discord.Embed(
-        title=f"Member Stats \u2014 {member['name']}",
-        color=int(member.get("color", "FFFFFF"), 16)
+        title=f"Member Stats \u2014 {member.get('name', 'Unknown')}",
+        color=embed_color
     )
 
     embed.add_field(
         name="Front Time",
-        value=(
-            f"Primary: {format_duration(primary)}\n"
-            f"Co-Front: {format_duration(cofront)}\n"
-            f"Total Presence: {format_duration(total)}"
-        ),
+        value=f"Total: {format_duration(total_front_seconds)}",
         inline=False
     )
 
@@ -3722,6 +3779,7 @@ async def memberstats(interaction: discord.Interaction, member_id: str, subsyste
 # -----------------------------
 # Member front history
 # -----------------------------
+# /memberhistory — View a member's recent front history with durations
 @tree.command(name="memberhistory", description="View a member's front history")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def memberhistory(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
@@ -3779,6 +3837,7 @@ async def memberhistory(interaction: discord.Interaction, member_id: str, subsys
 # Browse members by tags interactively
 # -----------------------------
 
+# /browsetags — Interactively filter and browse members by tags
 @tree.command(name="browsetags", description="Browse members by tags interactively in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def browsetags(interaction: discord.Interaction, subsystem_id: str = None):
@@ -3801,6 +3860,7 @@ async def browsetags(interaction: discord.Interaction, subsystem_id: str = None)
 # -----------------------------
 # View member
 # -----------------------------
+# /viewmember — View a member's profile card embed
 @tree.command(name="viewmember", description="View a member profile in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def viewmember(
@@ -3827,6 +3887,7 @@ async def viewmember(
 
     await interaction.response.send_message(embed=build_member_profile_embed(member, system=system))
 
+# /random — View a random member from the system, optionally by privacy pool
 @tree.command(name="random", description="View a random member from your full system")
 @app_commands.choices(privacy_pool=[
     app_commands.Choice(name="Public", value="public"),
@@ -3881,6 +3942,7 @@ async def randommember(
 # -----------------------------
 # Edit member
 # -----------------------------
+# /editmember — Edit a member's profile fields, proxy tag, or tags
 @tree.command(name="editmember", description="Edit member info in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 @app_commands.choices(proxy_tag_position=[
@@ -3945,7 +4007,7 @@ async def editmember(
         try:
             member["color"] = normalize_hex(color)
             updated_fields.append("color")
-        except:
+        except ValueError:
             await interaction.response.send_message("Invalid HEX color.", ephemeral=True)
             return
     if profile_pic:
@@ -3992,6 +4054,7 @@ async def editmember(
         await interaction.response.send_message(f"Member **{member['name']}** updated: {summary}.")
 
 
+# /addmembertag — Add an additional proxy format to a member
 @tree.command(name="addmembertag", description="Add an extra proxy format to a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def addmembertag(
@@ -4040,6 +4103,7 @@ async def addmembertag(
     )
 
 
+# /removemembertag — Remove a proxy format from a member
 @tree.command(name="removemembertag", description="Remove one proxy format from a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def removemembertag(
@@ -4089,6 +4153,7 @@ async def removemembertag(
 # -----------------------------
 # Edit member images
 # -----------------------------
+# /editmemberimages — Update a member's profile picture or banner
 @tree.command(name="editmemberimages", description="Edit a member's profile picture or banner in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def editmemberimages(
@@ -4140,6 +4205,7 @@ async def editmemberimages(
 # -----------------------------
 # List all members
 # -----------------------------
+# /members — View a paginated list of members with front info
 @tree.command(name="members", description="View members with paging (main, subsystem, or whole system)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def members_list(
@@ -4213,7 +4279,8 @@ async def members_list(
             end_idx = start_idx + self.members_per_page
             page_members = self.member_rows[start_idx:end_idx]
 
-            desc_lines = []
+            total_count = len(self.member_rows)
+            desc_lines = [f"**Alter Count: {total_count}**"]
             for scope_id, member_id, m in page_members:
                 current_front = m.get("current_front")
                 fronting = "Yes" if current_front else "No"
@@ -4227,9 +4294,8 @@ async def members_list(
                     f"**{m['name']}** (ID `{member_id}`) | Scope: {scope_label} | Fronting: {fronting} | Co-fronts: {co_fronts} | Total Front Time: {duration}"
                 )
 
-            total_count = len(self.member_rows)
             embed = discord.Embed(
-                title=f"Members List - {self.title_scope} (Page {page}/{self.total_pages}) | Total: {total_count}",
+                title=f"Members List - {self.title_scope} (Page {page}/{self.total_pages})",
                 description="\n".join(desc_lines) or "No members found.",
                 color=0x00FF00
             )
@@ -4288,6 +4354,7 @@ async def members_list(
 
     paginator = Paginator(member_rows, scoped_members_lookup, title_scope, sort_mode, members_per_page)
     await interaction.response.send_message(embed=paginator.get_embed(paginator.current_page), view=paginator)
+# /toggleuntracked — Exclude or include a member in the total count
 @tree.command(name="toggleuntracked", description="Toggle the 'untracked' status for a member (exclude/include in total count)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def toggle_untracked_slash(
@@ -4319,89 +4386,8 @@ async def toggle_untracked_slash(
     status = "now **untracked** (excluded from total count)" if member["untracked"] else "now **tracked** (included in total count)"
     await interaction.response.send_message(f"Member **{member.get('name', resolved_id)}** is {status}.", ephemeral=True)
 
-    if not member_rows:
-        await interaction.response.send_message("No visible members found.", ephemeral=True)
-        return
 
-    sort_mode = get_member_sort_mode(system)
-    member_rows = sort_member_rows(member_rows, sort_mode)
-
-    members_per_page = 15
-    total_pages = (len(member_rows) - 1) // members_per_page + 1 if member_rows else 1
-
-    page = 1  # start at page 1
-
-    def get_embed(page):
-        start_idx = (page - 1) * members_per_page
-        end_idx = start_idx + members_per_page
-        page_members = member_rows[start_idx:end_idx]
-
-        desc_lines = []
-        for scope_id, member_id, m in page_members:
-            current_front = m.get("current_front")
-            fronting = "Yes" if current_front else "No"
-            duration = format_duration(calculate_front_duration(m))
-            scoped_members = scoped_members_lookup.get(scope_id, {})
-            cofront_ids = current_front.get("cofronts", []) if current_front else []
-            cofront_names = [scoped_members.get(co_id, {}).get("name", str(co_id)) for co_id in cofront_ids]
-            co_fronts = ", ".join(cofront_names) if cofront_names else "None"
-            scope_label = get_scope_label(scope_id)
-            desc_lines.append(
-                f"**{m['name']}** (ID `{member_id}`) | Scope: {scope_label} | Fronting: {fronting} | Co-fronts: {co_fronts} | Total Front Time: {duration}"
-            )
-
-        total_count = len(member_rows)
-        embed = discord.Embed(
-            title=f"Members List - {title_scope} (Page {page}/{total_pages}) | Total: {total_count}",
-            description="\n".join(desc_lines) or "No members found.",
-            color=0x00FF00
-        )
-        embed.set_footer(text=f"Sort: {'Alphabetical' if sort_mode == 'alphabetical' else 'ID'}")
-        return embed
-
-    # Initial embed
-    embed = get_embed(page)
-
-    # Dropdown for page selection
-    class Paginator(discord.ui.View):
-        def __init__(self):
-            super().__init__(timeout=60)
-            self.current_page = page
-            self.add_item(self.PageSelect())
-
-        class PageSelect(discord.ui.Select):
-            def __init__(self):
-                options = [
-                    discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == page))
-                    for i in range(1, total_pages + 1)
-                ]
-                super().__init__(
-                    placeholder="Jump to page...",
-                    min_values=1,
-                    max_values=1,
-                    options=options
-                )
-
-            async def callback(self, interaction: discord.Interaction):
-                selected_page = int(self.values[0])
-                self.view.current_page = selected_page
-                await interaction.response.edit_message(embed=get_embed(selected_page), view=self.view)
-
-        @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary)
-        async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if self.current_page > 1:
-                self.current_page -= 1
-                await interaction.response.edit_message(embed=get_embed(self.current_page), view=self)
-
-        @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
-        async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if self.current_page < total_pages:
-                self.current_page += 1
-                await interaction.response.edit_message(embed=get_embed(self.current_page), view=self)
-
-    await interaction.response.send_message(embed=embed, view=Paginator())
-
-
+# /membersort — Set member list sorting to ID or alphabetical
 @tree.command(name="membersort", description="Set member list sort mode")
 @app_commands.choices(mode=[
     app_commands.Choice(name="ID", value="id"),
@@ -4426,6 +4412,7 @@ async def membersort(interaction: discord.Interaction, mode: str):
     await interaction.response.send_message(f"Member list sorting set to **{label}**.", ephemeral=True)
 
 
+# /creategroup — Create a member group, optionally nested under a parent
 @tree.command(name="creategroup", description="Create a member group (optionally nested under another group)")
 async def creategroup(interaction: discord.Interaction, name: str, parent_group_id: str = None):
     user_id = interaction.user.id
@@ -4461,6 +4448,7 @@ async def creategroup(interaction: discord.Interaction, name: str, parent_group_
     await interaction.response.send_message(f"Created group **{groups[group_id]['name']}** (`{group_id}`){parent_msg}.", ephemeral=True)
 
 
+# /editgroup — Edit a group's name or parent for nesting
 @tree.command(name="editgroup", description="Edit group name or parent for nesting")
 async def editgroup(
     interaction: discord.Interaction,
@@ -4521,6 +4509,7 @@ async def editgroup(
     await interaction.response.send_message(f"Updated group **{group['name']}** (`{group_id}`).", ephemeral=True)
 
 
+# /deletegroup — Delete a group and optionally its nested children
 @tree.command(name="deletegroup", description="Delete a group and optionally all nested child groups")
 async def deletegroup(interaction: discord.Interaction, group_id: str, delete_children: bool = True):
     user_id = interaction.user.id
@@ -4569,6 +4558,7 @@ async def deletegroup(interaction: discord.Interaction, group_id: str, delete_ch
     )
 
 
+# /listgroups — List all groups in their current display order
 @tree.command(name="listgroups", description="List your groups in current card display order")
 async def listgroups_cmd(interaction: discord.Interaction, show_to_others: bool = False):
     user_id = interaction.user.id
@@ -4604,6 +4594,7 @@ async def listgroups_cmd(interaction: discord.Interaction, show_to_others: bool 
     await interaction.response.send_message(embed=embed, ephemeral=not show_to_others)
 
 
+# /grouporder — Set group display order via comma-separated IDs
 @tree.command(name="grouporder", description="Set the order groups appear on member cards")
 async def grouporder(interaction: discord.Interaction, group_ids: str):
     user_id = interaction.user.id
@@ -4645,6 +4636,7 @@ async def grouporder(interaction: discord.Interaction, group_ids: str):
     await interaction.response.send_message(f"Group order updated: {', '.join(new_order)}", ephemeral=True)
 
 
+# /grouporderui — Interactively reorder groups with a UI
 @tree.command(name="grouporderui", description="Interactively reorder groups for member card display")
 async def grouporderui(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -4667,6 +4659,7 @@ async def grouporderui(interaction: discord.Interaction):
     await interaction.response.send_message(embed=view.current_embed(), view=view, ephemeral=True)
 
 
+# /addmembergroup — Assign a group to a member
 @tree.command(name="addmembergroup", description="Assign a group to a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def addmembergroup(interaction: discord.Interaction, member_id: str, group_id: str, subsystem_id: str = None):
@@ -4701,6 +4694,7 @@ async def addmembergroup(interaction: discord.Interaction, member_id: str, group
     await interaction.response.send_message(f"Added group `{group_id}` to **{member['name']}**.", ephemeral=True)
 
 
+# /removemembergroup — Remove a group assignment from a member
 @tree.command(name="removemembergroup", description="Remove a group from a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def removemembergroup(interaction: discord.Interaction, member_id: str, group_id: str, subsystem_id: str = None):
@@ -4730,6 +4724,7 @@ async def removemembergroup(interaction: discord.Interaction, member_id: str, gr
     await interaction.response.send_message(f"Removed group `{group_id}` from **{member['name']}**.", ephemeral=True)
 
 
+# /membergroups — List all groups assigned to a member
 @tree.command(name="membergroups", description="List groups assigned to a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def membergroups(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
@@ -4759,6 +4754,7 @@ async def membergroups(interaction: discord.Interaction, member_id: str, subsyst
 # -----------------------------
 # Search Members
 # -----------------------------
+# /searchmember — Search for members by name or tag
 @tree.command(name="searchmember", description="Search for a member by name or tag")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete, name=member_name_autocomplete, tag=tag_autocomplete)
 async def searchmember(interaction: discord.Interaction, subsystem_id: str = None, name: str = None, tag: str = None):
@@ -4784,7 +4780,7 @@ async def searchmember(interaction: discord.Interaction, subsystem_id: str = Non
     results = list(members_dict.values())
 
     if name:
-        results = [m for m in results if name.lower() in m["name"].lower()]
+        results = [m for m in results if name.lower() in m.get("name", "").lower()]
 
     if tag:
         results = [m for m in results if tag.lower() in [t.lower() for t in m.get("tags", [])]]
@@ -4835,6 +4831,7 @@ async def searchmember(interaction: discord.Interaction, subsystem_id: str = Non
 # -----------------------------
 # Tag management
 # -----------------------------
+# /addtag — Add a custom tag to the system's tag list
 @tree.command(name="addtag", description="Add a tag to your system")
 async def addtag(interaction: discord.Interaction, tag: str):
     user_id = interaction.user.id
@@ -4866,6 +4863,7 @@ async def addtag(interaction: discord.Interaction, tag: str):
 # -----------------------------
 # List tags
 # -----------------------------
+# /listtags — List all common preset and custom tags
 @tree.command(name="listtags", description="List all tags in your system")
 async def listtags(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -4906,7 +4904,7 @@ async def listtags(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
-# Example usage for clearfront:
+# /clearfront — End all current fronting sessions in a scope
 @tree.command(name="clearfront", description="Clear fronting status in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def clearfront(interaction: discord.Interaction, subsystem_id: str = None):
@@ -4937,7 +4935,7 @@ async def clearfront(interaction: discord.Interaction, subsystem_id: str = None)
     await interaction.response.send_message(f"Are you sure you want to clear all current fronts in {get_scope_label(subsystem_id)}?", view=view, ephemeral=True)
 
 
-# Example usage for removetag:
+# /removetag — Remove a custom tag from the system and all members
 @tree.command(name="removetag", description="Remove a tag from your system")
 async def removetag(interaction: discord.Interaction, tag: str):
     user_id = interaction.user.id
@@ -4968,15 +4966,13 @@ async def removetag(interaction: discord.Interaction, tag: str):
     async def do_remove(interaction: discord.Interaction):
         system["custom_tags"] = [t for t in get_system_tag_list(system, create=True) if t != tag]
         # Remove tag from all members across all subsystems in user's system
-        if system_id in systems_data["systems"]:
-            system = systems_data["systems"][system_id]
-            for member in system["members"].values():
+        for member in system.get("members", {}).values():
+            if tag in member.get("tags", []):
+                member["tags"].remove(tag)
+        for subsystem in system.get("subsystems", {}).values():
+            for member in subsystem.get("members", {}).values():
                 if tag in member.get("tags", []):
                     member["tags"].remove(tag)
-            for subsystem in system.get("subsystems", {}).values():
-                for member in subsystem["members"].values():
-                    if tag in member.get("tags", []):
-                        member["tags"].remove(tag)
         save_systems()
         await interaction.response.send_message(f"Tag `{tag}` removed.", ephemeral=True)
 
@@ -4986,6 +4982,7 @@ async def removetag(interaction: discord.Interaction, tag: str):
 # -----------------------------
 # Remove member
 # -----------------------------
+# /removemember — Remove a single member with confirmation
 @tree.command(name="removemember", description="Remove a member from a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def removemember(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
@@ -5013,6 +5010,7 @@ async def removemember(interaction: discord.Interaction, member_id: str, subsyst
 # -----------------------------
 # Multi-member removal
 # -----------------------------
+# /removemembers — Interactively select and remove multiple members
 @tree.command(name="removemembers", description="Remove multiple members at once (with confirmation) from a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def removemembers(interaction: discord.Interaction, subsystem_id: str = None):
@@ -5067,6 +5065,7 @@ async def removemembers(interaction: discord.Interaction, subsystem_id: str = No
     )
 
 
+# /clearsystem — Remove all members from the entire system (destructive)
 @tree.command(name="clearsystem", description="Remove all members from your entire system (dangerous!)")
 async def clearsystem(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -5087,6 +5086,7 @@ async def clearsystem(interaction: discord.Interaction):
     )
 
 
+# /clearsubsystem — Delete or move all members from one subsystem
 @tree.command(name="clearsubsystem", description="Remove all members from one subsystem (dangerous!)")
 @app_commands.choices(action=[
     app_commands.Choice(name="Delete all members", value="delete"),
@@ -5151,6 +5151,7 @@ async def clearsubsystem(interaction: discord.Interaction, subsystem_id: str = N
     )
 
 
+# /deletesystem — Permanently delete the entire system record
 @tree.command(name="deletesystem", description="Delete your entire registered system record (dangerous!)")
 async def deletesystem(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -5181,6 +5182,7 @@ async def deletesystem(interaction: discord.Interaction):
 # -----------------------------
 # Clear all front history
 # -----------------------------
+# /clearall — Erase all front history in a scope (destructive)
 @tree.command(name="clearall", description="Clear all front history for members in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def clearall(interaction: discord.Interaction, subsystem_id: str = None):
@@ -5214,6 +5216,7 @@ async def clearall(interaction: discord.Interaction, subsystem_id: str = None):
 # -----------------------------
 # Refresh databases
 # -----------------------------
+# /refresh — Reload all system data from disk (admin only)
 @tree.command(name="refresh", description="Reload all databases from disk")
 @app_commands.default_permissions(administrator=True)
 async def refresh(interaction: discord.Interaction):
@@ -5237,6 +5240,7 @@ async def refresh(interaction: discord.Interaction):
 # -----------------------------
 # Sync
 # -----------------------------
+# /synccommands — Force sync all slash commands globally (admin only)
 @tree.command(name="synccommands", description="Force sync all commands globally")
 async def synccommands(interaction: discord.Interaction):
     is_bot_admin = is_bot_moderator_user(interaction.user.id)

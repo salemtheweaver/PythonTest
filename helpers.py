@@ -1093,6 +1093,8 @@ def build_weekly_checkin_summary(system):
     )
 
 def current_week_key(now=None):
+    if now is None:
+        now = datetime.now(timezone.utc)
     iso = now.isocalendar()
     return f"{iso.year}-W{iso.week:02d}"
 
@@ -2592,7 +2594,7 @@ def calculate_front_duration(member):
 
 def format_duration(seconds):
     """Formats seconds as Hh Mm Ss"""
-    seconds = int(seconds)
+    seconds = max(0, int(seconds))
     td = timedelta(seconds=seconds)
     hours, remainder = divmod(td.seconds, 3600)
     minutes, secs = divmod(remainder, 60)
