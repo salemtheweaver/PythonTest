@@ -12,6 +12,7 @@ import urllib.error
 from config import JSON_FILE, GITHUB_TOKEN, GITHUB_REPO
 
 SYSTEMS_DIR = "systems"  # GitHub directory for per-system files
+GITHUB_DATA_BRANCH = "data"  # Separate branch for data to avoid triggering Railway deploys
 
 
 _save_worker_lock = threading.Lock()
@@ -45,7 +46,7 @@ def _background_github_save_worker():
             # Save monolith file if queued (for _moderation and other non-system data)
             monolith_data = payload.get("_monolith")
             if monolith_data:
-                _github_save_file(JSON_FILE, monolith_data)
+                _github_save_file(JSON_FILE, monolith_data, branch=GITHUB_DATA_BRANCH)
         finally:
             _save_worker_idle.set()
 
@@ -122,7 +123,7 @@ def flush_pending_save():
         _github_save_system(sys_id, sys_data)
     non_system_keys = [k for k in systems_data if k != "systems"]
     if non_system_keys:
-        _github_save_file(JSON_FILE, systems_data)
+        _github_save_file(JSON_FILE, systems_data, branch=GITHUB_DATA_BRANCH)
     print("[INFO] Shutdown save complete.")
 
 
@@ -137,9 +138,62 @@ signal.signal(signal.SIGTERM, _sigterm_handler)
 
 
 # --- GitHub persistence helpers ---
-def _github_get_file(filename):
+
+def _ensure_data_branch():
+    """Create the data branch on GitHub if it doesn't already exist."""
+    if not GITHUB_TOKEN:
+        return
+    # Check if the branch exists
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/git/ref/heads/{GITHUB_DATA_BRANCH}"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+        return  # Branch exists
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            print(f"[WARN] Error checking data branch: {e}")
+            return
+    except Exception as e:
+        print(f"[WARN] Error checking data branch: {e}")
+        return
+
+    # Branch doesn't exist — create it from main's HEAD
+    try:
+        main_url = f"https://api.github.com/repos/{GITHUB_REPO}/git/ref/heads/main"
+        main_req = urllib.request.Request(main_url, headers={
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+        })
+        with urllib.request.urlopen(main_req, timeout=10) as resp:
+            main_data = json.loads(resp.read().decode("utf-8"))
+            sha = main_data["object"]["sha"]
+
+        create_url = f"https://api.github.com/repos/{GITHUB_REPO}/git/refs"
+        create_body = json.dumps({
+            "ref": f"refs/heads/{GITHUB_DATA_BRANCH}",
+            "sha": sha,
+        }).encode("utf-8")
+        create_req = urllib.request.Request(create_url, data=create_body, method="POST", headers={
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+        })
+        with urllib.request.urlopen(create_req, timeout=10) as resp:
+            resp.read()
+        print(f"[INFO] Created '{GITHUB_DATA_BRANCH}' branch for data storage")
+    except Exception as e:
+        print(f"[WARN] Failed to create data branch: {e}")
+
+
+def _github_get_file(filename, branch=None):
     """Get file content and sha from GitHub. Handles large files via download_url."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+    if branch:
+        url += f"?ref={branch}"
     req = urllib.request.Request(url, headers={
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
@@ -160,13 +214,15 @@ def _github_get_file(filename):
                     content = dl_resp.read().decode("utf-8")
                     return json.loads(content), sha
     except Exception as e:
-        print(f"[WARN] _github_get_file({filename}) failed: {e}")
+        print(f"[WARN] _github_get_file({filename}, branch={branch}) failed: {e}")
     return None, None
 
 
-def _github_list_dir(dirname):
+def _github_list_dir(dirname, branch=None):
     """List files in a GitHub directory. Returns list of {name, path} dicts."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{dirname}"
+    if branch:
+        url += f"?ref={branch}"
     req = urllib.request.Request(url, headers={
         "Authorization": f"token {GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json",
@@ -181,7 +237,7 @@ def _github_list_dir(dirname):
     return []
 
 
-def _github_save_file(filename, data_obj, retries=6):
+def _github_save_file(filename, data_obj, retries=6, branch=None):
     """Save JSON data to GitHub repo with retry logic and compact encoding."""
     if not GITHUB_TOKEN:
         return
@@ -193,12 +249,15 @@ def _github_save_file(filename, data_obj, retries=6):
 
     for attempt in range(1, retries + 1):
         try:
-            _, sha = _github_get_file(filename)
-            body = json.dumps({
+            _, sha = _github_get_file(filename, branch=branch)
+            body_dict = {
                 "message": f"Auto-update {filename} [skip ci]",
                 "content": encoded,
                 **({"sha": sha} if sha else {}),
-            }).encode("utf-8")
+            }
+            if branch:
+                body_dict["branch"] = branch
+            body = json.dumps(body_dict).encode("utf-8")
             url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
             req = urllib.request.Request(url, data=body, method="PUT", headers={
                 "Authorization": f"token {GITHUB_TOKEN}",
@@ -229,23 +288,38 @@ def _github_save_file(filename, data_obj, retries=6):
 
 # --- Per-system GitHub storage ---
 def _github_load_all_systems():
-    """Load all systems from individual GitHub files in systems/ directory."""
+    """Load all systems from individual GitHub files in systems/ directory.
+
+    Tries the data branch first, falls back to main for migration.
+    """
+    # Try loading from data branch first
     systems = {}
+    files = _github_list_dir(SYSTEMS_DIR, branch=GITHUB_DATA_BRANCH)
+    if files:
+        for f in files:
+            if f["name"].endswith(".json"):
+                data, _ = _github_get_file(f["path"], branch=GITHUB_DATA_BRANCH)
+                if data and isinstance(data, dict):
+                    for sys_id, sys_data in data.items():
+                        systems[sys_id] = sys_data
+        if systems:
+            return systems
+
+    # Fall back to main branch (existing data before migration)
     files = _github_list_dir(SYSTEMS_DIR)
     for f in files:
         if f["name"].endswith(".json"):
             data, _ = _github_get_file(f["path"])
             if data and isinstance(data, dict):
-                # Each file stores a single system keyed by its system_id
                 for sys_id, sys_data in data.items():
                     systems[sys_id] = sys_data
     return systems
 
 
 def _github_save_system(system_id, system_data):
-    """Save a single system to its own file on GitHub."""
+    """Save a single system to its own file on GitHub (data branch)."""
     filename = f"{SYSTEMS_DIR}/{system_id}.json"
-    _github_save_file(filename, {system_id: system_data})
+    _github_save_file(filename, {system_id: system_data}, branch=GITHUB_DATA_BRANCH)
 
 
 def _migrate_monolith_to_split():
@@ -264,27 +338,33 @@ def _migrate_monolith_to_split():
 
 # --- Load systems data ---
 # Strategy:
-# 1. Try loading per-system files from GitHub (systems/ directory)
-# 2. If none found, try migrating from monolith cortex_members.json on GitHub
-# 3. Fall back to local disk
-# 4. Fall back to empty
+# 1. Ensure data branch exists on GitHub
+# 2. Try loading per-system files from GitHub (data branch, then main)
+# 3. If none found, try migrating from monolith cortex_members.json on GitHub
+# 4. Fall back to local disk
+# 5. Fall back to empty
 
 systems_data = {"systems": {}}
 
 if GITHUB_TOKEN:
-    # Load per-system files
+    # Ensure data branch exists for storing system files
+    _ensure_data_branch()
+
+    # Load per-system files (tries data branch first, then main)
     split_systems = _github_load_all_systems()
     if split_systems:
         systems_data["systems"] = split_systems
         print(f"[INFO] Loaded {len(split_systems)} systems from GitHub per-system files")
 
-    # Always load moderation/admin data from main monolith file
-    mono_data, _ = _github_get_file(JSON_FILE)
+    # Always load moderation/admin data from monolith file (check data branch first, then main)
+    mono_data, _ = _github_get_file(JSON_FILE, branch=GITHUB_DATA_BRANCH)
+    if not mono_data:
+        mono_data, _ = _github_get_file(JSON_FILE)
     if mono_data:
         if mono_data.get("_moderation"):
             systems_data["_moderation"] = mono_data["_moderation"]
             print(f"[INFO] Loaded moderation state from {JSON_FILE}")
-        
+
         # Also check monolith for any systems not yet in per-system files
         if mono_data.get("systems"):
             new_from_mono = 0
