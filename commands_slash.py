@@ -4247,6 +4247,88 @@ async def members_list(
                 continue
             member_rows.append((subsystem_id, member_id, member))
         title_scope = get_scope_label(subsystem_id).capitalize()
+
+    if not member_rows:
+        await interaction.response.send_message("No visible members found.", ephemeral=True)
+        return
+
+    sort_mode = get_member_sort_mode(system)
+    member_rows = sort_member_rows(member_rows, sort_mode)
+
+    members_per_page = 15
+    total_pages = (len(member_rows) - 1) // members_per_page + 1 if member_rows else 1
+
+    page = 1  # start at page 1
+
+    def get_embed(page):
+        start_idx = (page - 1) * members_per_page
+        end_idx = start_idx + members_per_page
+        page_members = member_rows[start_idx:end_idx]
+
+        desc_lines = []
+        for scope_id, member_id, m in page_members:
+            current_front = m.get("current_front")
+            fronting = "Yes" if current_front else "No"
+            duration = format_duration(calculate_front_duration(m))
+            scoped_members = scoped_members_lookup.get(scope_id, {})
+            cofront_ids = current_front.get("cofronts", []) if current_front else []
+            cofront_names = [scoped_members.get(co_id, {}).get("name", str(co_id)) for co_id in cofront_ids]
+            co_fronts = ", ".join(cofront_names) if cofront_names else "None"
+            scope_label = get_scope_label(scope_id)
+            desc_lines.append(
+                f"**{m['name']}** (ID `{member_id}`) | Scope: {scope_label} | Fronting: {fronting} | Co-fronts: {co_fronts} | Total Front Time: {duration}"
+            )
+
+        total_count = len(member_rows)
+        embed = discord.Embed(
+            title=f"Members List - {title_scope} (Page {page}/{total_pages}) | Total: {total_count}",
+            description="\n".join(desc_lines) or "No members found.",
+            color=0x00FF00
+        )
+        embed.set_footer(text=f"Sort: {'Alphabetical' if sort_mode == 'alphabetical' else 'ID'}")
+        return embed
+
+    # Initial embed
+    embed = get_embed(page)
+
+    # Dropdown for page selection
+    class Paginator(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=60)
+            self.current_page = page
+            self.add_item(self.PageSelect())
+
+        class PageSelect(discord.ui.Select):
+            def __init__(self):
+                options = [
+                    discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == page))
+                    for i in range(1, total_pages + 1)
+                ]
+                super().__init__(
+                    placeholder="Jump to page...",
+                    min_values=1,
+                    max_values=1,
+                    options=options
+                )
+
+            async def callback(self, interaction: discord.Interaction):
+                selected_page = int(self.values[0])
+                self.view.current_page = selected_page
+                await interaction.response.edit_message(embed=get_embed(selected_page), view=self.view)
+
+        @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary)
+        async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if self.current_page > 1:
+                self.current_page -= 1
+                await interaction.response.edit_message(embed=get_embed(self.current_page), view=self)
+
+        @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
+        async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
+            if self.current_page < total_pages:
+                self.current_page += 1
+                await interaction.response.edit_message(embed=get_embed(self.current_page), view=self)
+
+    await interaction.response.send_message(embed=embed, view=Paginator())
 @tree.command(name="toggleuntracked", description="Toggle the 'untracked' status for a member (exclude/include in total count)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def toggle_untracked_slash(
