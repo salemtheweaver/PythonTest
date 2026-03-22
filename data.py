@@ -38,14 +38,14 @@ def _background_github_save_worker():
 
         _save_worker_idle.clear()
         try:
-            # Save each system as its own small file instead of one monolith
+            # Save individual system files that were queued
             for sys_id, sys_data in payload.get("systems", {}).items():
                 _github_save_system(sys_id, sys_data)
 
-            # Only write monolith if it has non-system keys (e.g. _moderation)
-            non_system_keys = [k for k in payload if k != "systems"]
-            if non_system_keys:
-                _github_save_file(JSON_FILE, payload)
+            # Save monolith file if queued (for _moderation and other non-system data)
+            monolith_data = payload.get("_monolith")
+            if monolith_data:
+                _github_save_file(JSON_FILE, monolith_data)
         finally:
             _save_worker_idle.set()
 
@@ -76,6 +76,23 @@ def _queue_system_save(system_id, system_data):
         if _pending_save_payload is None:
             _pending_save_payload = {"systems": {}}
         _pending_save_payload.setdefault("systems", {})[system_id] = frozen_data
+        if not _save_worker_started:
+            worker = threading.Thread(target=_background_github_save_worker, daemon=True)
+            worker.start()
+            _save_worker_started = True
+        _save_condition.notify()
+
+
+def _queue_monolith_save(data_obj):
+    """Queue only the monolith file save (for non-system keys like _moderation)."""
+    global _pending_save_payload, _save_worker_started
+
+    payload = json.loads(json.dumps(data_obj))
+
+    with _save_condition:
+        if _pending_save_payload is None:
+            _pending_save_payload = {"_monolith_only": True}
+        _pending_save_payload["_monolith"] = payload
         if not _save_worker_started:
             worker = threading.Thread(target=_background_github_save_worker, daemon=True)
             worker.start()
@@ -302,16 +319,47 @@ if not systems_data["systems"]:
     print("[INFO] No existing data found, starting fresh")
 
 # Write to local disk for the running session
+# Snapshot of last-saved state per system, used to detect which systems actually changed.
+_last_saved_snapshots = {}
+
 with open(JSON_FILE, "w") as f:
     json.dump(systems_data, f, indent=4)
 
+# Take initial snapshot of all systems so we have a baseline for change detection.
+for _sid, _sdata in systems_data.get("systems", {}).items():
+    _last_saved_snapshots[_sid] = json.dumps(_sdata, separators=(",", ":"))
+
 
 def save_systems():
-    """Save all systems locally and queue per-system GitHub saves in background."""
+    """Save all systems locally and queue only changed systems to GitHub."""
     with open(JSON_FILE, "w") as f:
         json.dump(systems_data, f, indent=4)
-    if GITHUB_TOKEN:
-        _queue_github_save(systems_data)
+    if not GITHUB_TOKEN:
+        return
+
+    # Detect which systems actually changed since last save.
+    changed_systems = {}
+    for sys_id, sys_data in systems_data.get("systems", {}).items():
+        current_snapshot = json.dumps(sys_data, separators=(",", ":"))
+        if _last_saved_snapshots.get(sys_id) != current_snapshot:
+            changed_systems[sys_id] = sys_data
+            _last_saved_snapshots[sys_id] = current_snapshot
+
+    # Check for non-system keys (_moderation, etc.) changes.
+    non_system_keys = [k for k in systems_data if k != "systems"]
+    has_non_system = bool(non_system_keys)
+
+    if not changed_systems and not has_non_system:
+        return  # Nothing changed, skip GitHub save entirely.
+
+    if changed_systems:
+        for sys_id, sys_data in changed_systems.items():
+            _queue_system_save(sys_id, sys_data)
+
+    if has_non_system:
+        # Save only the monolith file for non-system data (_moderation, etc.)
+        # Don't re-queue all systems — they're handled individually above.
+        _queue_monolith_save(systems_data)
 
 
 def save_system(system_id):
