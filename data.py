@@ -329,6 +329,12 @@ with open(JSON_FILE, "w") as f:
 for _sid, _sdata in systems_data.get("systems", {}).items():
     _last_saved_snapshots[_sid] = json.dumps(_sdata, separators=(",", ":"))
 
+# Snapshot of non-system keys (e.g. _moderation) to detect monolith changes.
+_last_monolith_snapshot = ""
+_non_system = {k: v for k, v in systems_data.items() if k != "systems"}
+if _non_system:
+    _last_monolith_snapshot = json.dumps(_non_system, separators=(",", ":"))
+
 
 def save_systems():
     """Save all systems locally and queue only changed systems to GitHub."""
@@ -345,18 +351,24 @@ def save_systems():
             changed_systems[sys_id] = sys_data
             _last_saved_snapshots[sys_id] = current_snapshot
 
-    # Check for non-system keys (_moderation, etc.) changes.
-    non_system_keys = [k for k in systems_data if k != "systems"]
-    has_non_system = bool(non_system_keys)
+    # Check if non-system keys (_moderation, etc.) actually changed.
+    global _last_monolith_snapshot
+    non_system = {k: v for k, v in systems_data.items() if k != "systems"}
+    monolith_changed = False
+    if non_system:
+        current_mono = json.dumps(non_system, separators=(",", ":"))
+        if current_mono != _last_monolith_snapshot:
+            monolith_changed = True
+            _last_monolith_snapshot = current_mono
 
-    if not changed_systems and not has_non_system:
+    if not changed_systems and not monolith_changed:
         return  # Nothing changed, skip GitHub save entirely.
 
     if changed_systems:
         for sys_id, sys_data in changed_systems.items():
             _queue_system_save(sys_id, sys_data)
 
-    if has_non_system:
+    if monolith_changed:
         # Save only the monolith file for non-system data (_moderation, etc.)
         # Don't re-queue all systems — they're handled individually above.
         _queue_monolith_save(systems_data)
