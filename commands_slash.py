@@ -4260,49 +4260,52 @@ async def members_list(
 
     page = 1  # start at page 1
 
-    def get_embed(page):
-        start_idx = (page - 1) * members_per_page
-        end_idx = start_idx + members_per_page
-        page_members = member_rows[start_idx:end_idx]
-
-        desc_lines = []
-        for scope_id, member_id, m in page_members:
-            current_front = m.get("current_front")
-            fronting = "Yes" if current_front else "No"
-            duration = format_duration(calculate_front_duration(m))
-            scoped_members = scoped_members_lookup.get(scope_id, {})
-            cofront_ids = current_front.get("cofronts", []) if current_front else []
-            cofront_names = [scoped_members.get(co_id, {}).get("name", str(co_id)) for co_id in cofront_ids]
-            co_fronts = ", ".join(cofront_names) if cofront_names else "None"
-            scope_label = get_scope_label(scope_id)
-            desc_lines.append(
-                f"**{m['name']}** (ID `{member_id}`) | Scope: {scope_label} | Fronting: {fronting} | Co-fronts: {co_fronts} | Total Front Time: {duration}"
-            )
-
-        total_count = len(member_rows)
-        embed = discord.Embed(
-            title=f"Members List - {title_scope} (Page {page}/{total_pages}) | Total: {total_count}",
-            description="\n".join(desc_lines) or "No members found.",
-            color=0x00FF00
-        )
-        embed.set_footer(text=f"Sort: {'Alphabetical' if sort_mode == 'alphabetical' else 'ID'}")
-        return embed
-
-    # Initial embed
-    embed = get_embed(page)
-
-    # Dropdown for page selection
     class Paginator(discord.ui.View):
-        def __init__(self):
+        def __init__(self, member_rows, scoped_members_lookup, title_scope, sort_mode, members_per_page):
             super().__init__(timeout=60)
-            self.current_page = page
-            self.add_item(self.PageSelect())
+            self.member_rows = member_rows
+            self.scoped_members_lookup = scoped_members_lookup
+            self.title_scope = title_scope
+            self.sort_mode = sort_mode
+            self.members_per_page = members_per_page
+            self.total_pages = (len(self.member_rows) - 1) // self.members_per_page + 1 if self.member_rows else 1
+            self.current_page = 1
+            self.add_item(self.PageSelect(self))
+
+        def get_embed(self, page):
+            start_idx = (page - 1) * self.members_per_page
+            end_idx = start_idx + self.members_per_page
+            page_members = self.member_rows[start_idx:end_idx]
+
+            desc_lines = []
+            for scope_id, member_id, m in page_members:
+                current_front = m.get("current_front")
+                fronting = "Yes" if current_front else "No"
+                duration = format_duration(calculate_front_duration(m))
+                scoped_members = self.scoped_members_lookup.get(scope_id, {})
+                cofront_ids = current_front.get("cofronts", []) if current_front else []
+                cofront_names = [scoped_members.get(co_id, {}).get("name", str(co_id)) for co_id in cofront_ids]
+                co_fronts = ", ".join(cofront_names) if cofront_names else "None"
+                scope_label = get_scope_label(scope_id)
+                desc_lines.append(
+                    f"**{m['name']}** (ID `{member_id}`) | Scope: {scope_label} | Fronting: {fronting} | Co-fronts: {co_fronts} | Total Front Time: {duration}"
+                )
+
+            total_count = len(self.member_rows)
+            embed = discord.Embed(
+                title=f"Members List - {self.title_scope} (Page {page}/{self.total_pages}) | Total: {total_count}",
+                description="\n".join(desc_lines) or "No members found.",
+                color=0x00FF00
+            )
+            embed.set_footer(text=f"Sort: {'Alphabetical' if self.sort_mode == 'alphabetical' else 'ID'}")
+            return embed
 
         class PageSelect(discord.ui.Select):
-            def __init__(self):
+            def __init__(self, paginator):
+                self.paginator = paginator
                 options = [
-                    discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == page))
-                    for i in range(1, total_pages + 1)
+                    discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == paginator.current_page))
+                    for i in range(1, paginator.total_pages + 1)
                 ]
                 super().__init__(
                     placeholder="Jump to page...",
@@ -4313,22 +4316,42 @@ async def members_list(
 
             async def callback(self, interaction: discord.Interaction):
                 selected_page = int(self.values[0])
-                self.view.current_page = selected_page
-                await interaction.response.edit_message(embed=get_embed(selected_page), view=self.view)
+                self.paginator.current_page = selected_page
+                # Update select options to reflect new default
+                self.options = [
+                    discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == selected_page))
+                    for i in range(1, self.paginator.total_pages + 1)
+                ]
+                await interaction.response.edit_message(embed=self.paginator.get_embed(selected_page), view=self.paginator)
 
         @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary)
         async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.current_page > 1:
                 self.current_page -= 1
-                await interaction.response.edit_message(embed=get_embed(self.current_page), view=self)
+                # Update select options to reflect new default
+                for item in self.children:
+                    if isinstance(item, self.PageSelect):
+                        item.options = [
+                            discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == self.current_page))
+                            for i in range(1, self.total_pages + 1)
+                        ]
+                await interaction.response.edit_message(embed=self.get_embed(self.current_page), view=self)
 
         @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
         async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if self.current_page < total_pages:
+            if self.current_page < self.total_pages:
                 self.current_page += 1
-                await interaction.response.edit_message(embed=get_embed(self.current_page), view=self)
+                # Update select options to reflect new default
+                for item in self.children:
+                    if isinstance(item, self.PageSelect):
+                        item.options = [
+                            discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == self.current_page))
+                            for i in range(1, self.total_pages + 1)
+                        ]
+                await interaction.response.edit_message(embed=self.get_embed(self.current_page), view=self)
 
-    await interaction.response.send_message(embed=embed, view=Paginator())
+    paginator = Paginator(member_rows, scoped_members_lookup, title_scope, sort_mode, members_per_page)
+    await interaction.response.send_message(embed=paginator.get_embed(paginator.current_page), view=paginator)
 @tree.command(name="toggleuntracked", description="Toggle the 'untracked' status for a member (exclude/include in total count)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def toggle_untracked_slash(
