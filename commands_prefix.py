@@ -1,3 +1,116 @@
+@bot.command(name="pendingfriends", aliases=["pfru"])
+async def pendingfriends_prefix(ctx: commands.Context):
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register using /register.")
+        return
+    system = systems_data["systems"].get(system_id)
+    pending = get_external_settings(system).get("pending_requests", [])
+    friend_reqs = [p for p in pending if p.get("type") == "friend"]
+    if not friend_reqs:
+        await ctx.send("No pending friend requests.")
+        return
+    lines = []
+    for p in friend_reqs:
+        sender = p.get("sender_user_id")
+        sent_at = p.get("sent_at")
+        lines.append(f"- <@{sender}> (ID `{sender}`) sent at {sent_at}")
+    await ctx.send("Pending friend requests:\n" + "\n".join(lines))
+@bot.command(name="acceptfriend", aliases=["afru"])
+async def acceptfriend_prefix(ctx: commands.Context, user_id: str):
+    owner_id = ctx.author.id
+    system_id = get_user_system_id(owner_id)
+    if not system_id:
+        await ctx.send("You must register using /register.")
+        return
+    parsed = parse_discord_user_id(user_id)
+    if not parsed:
+        await ctx.send("Invalid user ID. Use a numeric Discord ID or mention.")
+        return
+    if str(owner_id) == parsed:
+        await ctx.send("You cannot accept a friend request from yourself.")
+        return
+    system = systems_data["systems"].get(system_id)
+    settings = get_external_settings(system)
+    pending = settings.get("pending_requests", [])
+    match = None
+    for p in pending:
+        if p.get("type") == "friend" and str(p.get("sender_user_id")) == parsed:
+            match = p
+            break
+    if not match:
+        await ctx.send("No pending friend request from that user.")
+        return
+    settings["pending_requests"] = [p for p in pending if p is not match]
+    friends = settings.get("friend_users", [])
+    if parsed not in friends:
+        friends.append(parsed)
+        settings["friend_users"] = friends
+    sender_system_id = get_user_system_id(parsed)
+    if not sender_system_id:
+        await ctx.send("Sender's system not found, but your friend list was updated.")
+        save_systems()
+        return
+    sender_system = systems_data["systems"].get(sender_system_id)
+    sender_settings = get_external_settings(sender_system)
+    sender_friends = sender_settings.get("friend_users", [])
+    if str(owner_id) not in sender_friends:
+        sender_friends.append(str(owner_id))
+        sender_settings["friend_users"] = sender_friends
+    save_systems()
+    user = ctx.bot.get_user(int(parsed))
+    if user is None:
+        try:
+            user = await ctx.bot.fetch_user(int(parsed))
+        except Exception:
+            user = None
+    if user:
+        try:
+            await user.send(f"<@{owner_id}> has accepted your friend request! You are now mutual friends.")
+        except Exception:
+            pass
+    await ctx.send(f"Friend request from <@{parsed}> accepted. You are now mutual friends.")
+
+@bot.command(name="denyfriend", aliases=["dfru"])
+async def denyfriend_prefix(ctx: commands.Context, user_id: str):
+    owner_id = ctx.author.id
+    system_id = get_user_system_id(owner_id)
+    if not system_id:
+        await ctx.send("You must register using /register.")
+        return
+    parsed = parse_discord_user_id(user_id)
+    if not parsed:
+        await ctx.send("Invalid user ID. Use a numeric Discord ID or mention.")
+        return
+    if str(owner_id) == parsed:
+        await ctx.send("You cannot deny a friend request from yourself.")
+        return
+    system = systems_data["systems"].get(system_id)
+    settings = get_external_settings(system)
+    pending = settings.get("pending_requests", [])
+    match = None
+    for p in pending:
+        if p.get("type") == "friend" and str(p.get("sender_user_id")) == parsed:
+            match = p
+            break
+    if not match:
+        await ctx.send("No pending friend request from that user.")
+        return
+    settings["pending_requests"] = [p for p in pending if p is not match]
+    save_systems()
+    user = ctx.bot.get_user(int(parsed))
+    if user is None:
+        try:
+            user = await ctx.bot.fetch_user(int(parsed))
+        except Exception:
+            user = None
+    if user:
+        try:
+            await user.send(f"<@{owner_id}> has denied your friend request.")
+        except Exception:
+            pass
+    await ctx.send(f"Friend request from <@{parsed}> denied.")
 import discord
 import random
 from discord import app_commands
@@ -1193,10 +1306,14 @@ async def autoproxystatus_prefix(ctx: commands.Context):
 
 @bot.command(name="members", aliases=["mem"])
 async def members_prefix(ctx: commands.Context, scope: str = "main", page: int = 1, target_user_id: str = None):
+    print("[DEBUG] members_prefix called")
     requester_id = ctx.author.id
+    print(f"[DEBUG] requester_id: {requester_id}, target_user_id: {target_user_id}")
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
+    print(f"[DEBUG] resolve_target_system_for_view: system_id={system_id}, error={error}")
     if error:
         await ctx.send(error)
+        print(f"[DEBUG] Exiting: {error}")
         return
 
     # Determine viewer access level
@@ -1209,6 +1326,7 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         settings = get_external_settings(system)
         trusted = set(str(uid) for uid in settings.get("trusted_users", []))
         friends = set(str(uid) for uid in settings.get("friend_users", []))
+        print(f"[DEBUG] trusted={trusted}, friends={friends}, viewer_id={viewer_id}")
         if viewer_id in trusted:
             access_levels = {"public", "friends", "trusted"}
         elif viewer_id in friends:
@@ -1218,6 +1336,7 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
     def is_tracked(member):
         return not member.get("untracked", False)
 
+    print(f"[DEBUG] scope_lower={scope_lower}")
     if scope_lower == "all":
         member_rows = []
         scoped_members_lookup = {}
@@ -1233,6 +1352,7 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         title_scope = "Entire System"
     elif scope_lower in {"main", "none"}:
         members_dict = get_system_members(system_id, None)
+        print(f"[DEBUG] members_dict keys: {list(members_dict.keys()) if members_dict else 'None'}")
         scoped_members_lookup = {None: members_dict}
         member_rows = []
         for member_id, member in members_dict.items():
@@ -1245,8 +1365,10 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         title_scope = "Main System"
     else:
         members_dict = get_system_members(system_id, scope)
+        print(f"[DEBUG] subsystem members_dict keys: {list(members_dict.keys()) if members_dict else 'None'}")
         if members_dict is None:
             await ctx.send("Subsystem not found.")
+            print("[DEBUG] Exiting: Subsystem not found.")
             return
         scoped_members_lookup = {scope: members_dict}
         member_rows = []
@@ -1258,6 +1380,7 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
                 continue
             member_rows.append((scope, member_id, member))
         title_scope = get_scope_label(scope).capitalize()
+    print(f"[DEBUG] member_rows count: {len(member_rows)}")
 @bot.command(name="toggleuntracked", aliases=["untracked", "track", "untrack"])
 async def toggle_untracked_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None, target_user_id: str = None):
     """Toggle the 'untracked' status for a member (exclude/include in total count)."""
@@ -3228,14 +3351,54 @@ async def frienduser_prefix(ctx: commands.Context, user_id: str):
     if not parsed:
         await ctx.send("Invalid user ID. Use a numeric Discord ID or mention.")
         return
+    if str(owner_id) == parsed:
+        await ctx.send("You cannot friend yourself.")
+        return
+    # Get both systems
     system = systems_data["systems"].get(system_id)
+    target_system_id = get_user_system_id(parsed)
+    if not target_system_id:
+        await ctx.send("That user does not have a registered system.")
+        return
+    target_system = systems_data["systems"].get(target_system_id)
     settings = get_external_settings(system)
-    friends = settings.get("friend_users", [])
-    if parsed not in friends:
-        friends.append(parsed)
-        settings["friend_users"] = friends
-        save_systems()
-    await ctx.send(f"Friend user added: `{parsed}`.")
+    target_settings = get_external_settings(target_system)
+    if parsed in settings.get("friend_users", []) and str(owner_id) in target_settings.get("friend_users", []):
+        await ctx.send("You are already mutual friends.")
+        return
+    # Check if a pending request already exists
+    pending = target_settings.get("pending_requests", [])
+    already_pending = any(
+        p.get("type") == "friend" and str(p.get("sender_user_id")) == str(owner_id)
+        for p in pending
+    )
+    if already_pending:
+        await ctx.send("Friend request already pending.")
+        return
+    # Add pending friend request to target
+    pending.append({
+        "type": "friend",
+        "sender_user_id": str(owner_id),
+        "from_system_id": str(system_id),
+        "sent_at": datetime.now(timezone.utc).isoformat(),
+    })
+    target_settings["pending_requests"] = pending
+    save_systems()
+    # Try to DM the target user
+    user = ctx.bot.get_user(int(parsed))
+    if user is None:
+        try:
+            user = await ctx.bot.fetch_user(int(parsed))
+        except Exception:
+            user = None
+    dm_sent = False
+    if user:
+        try:
+            await user.send(f"You have received a friend request from <@{owner_id}>. Use `Cor;acceptfriend {owner_id}` to accept or `Cor;denyfriend {owner_id}` to deny.")
+            dm_sent = True
+        except Exception:
+            dm_sent = False
+    await ctx.send(f"Friend request sent to <@{parsed}>." + (" (DM delivered)" if dm_sent else " (Could not DM user)"))
 
 
 @bot.command(name="unfrienduser", aliases=["ufru"])
