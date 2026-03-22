@@ -1219,11 +1219,16 @@ def fit_box_drawing(text):
     for line in text.split('\n'):
         stripped = line.strip()
         if not stripped:
+            out.append("")
             continue
         if all(ch in _BOX_CHARS for ch in stripped) and len(stripped) > _MAX_BOX_LINE:
             stripped = stripped[0] + stripped[1] * (_MAX_BOX_LINE - 2) + stripped[-1]
         out.append(stripped)
-    return '\n'.join(out)
+    # Collapse runs of 3+ blank lines to 2, trim leading/trailing blanks
+    result = '\n'.join(out).strip('\n')
+    while '\n\n\n' in result:
+        result = result.replace('\n\n\n', '\n\n')
+    return result
 
 
 def build_member_profile_embed(member, system=None):

@@ -1011,15 +1011,16 @@ async def viewsystemcard(
     except (TypeError, ValueError):
         embed_color = int("00DE9B", 16)
 
+    desc_text = fit_box_drawing(profile.get("description") or "") or "No description set."
+
     embed = discord.Embed(
         title=f"{system.get('system_name', 'Unnamed System')} - System Card",
+        description=desc_text,
         color=embed_color
     )
     embed.add_field(name="Mode", value=system.get("mode", "system").title(), inline=True)
     embed.add_field(name="Collective Pronouns", value=profile.get("collective_pronouns") or "Not set", inline=True)
     embed.add_field(name="System Tag", value=get_system_proxy_tag(system) or "Not set", inline=True)
-    desc_text = fit_box_drawing(profile.get("description") or "") or "No description set."
-    embed.add_field(name="Description", value=desc_text, inline=False)
 
     if profile.get("profile_pic"):
         embed.set_thumbnail(url=profile["profile_pic"])
