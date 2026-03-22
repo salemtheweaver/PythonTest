@@ -4218,12 +4218,17 @@ async def members_list(
         await interaction.response.send_message(error, ephemeral=True)
         return
 
+    def is_tracked(member):
+        return not member.get("untracked", False)
+
     if whole_system:
         member_rows = []
         scoped_members_lookup = {}
         for scope_id, scoped_members in iter_system_member_dicts(system):
             scoped_members_lookup[scope_id] = scoped_members
             for member_id, member in scoped_members.items():
+                if not is_tracked(member):
+                    continue
                 if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
                     continue
                 member_rows.append((scope_id, member_id, member))
@@ -4236,10 +4241,42 @@ async def members_list(
         scoped_members_lookup = {subsystem_id: members_dict}
         member_rows = []
         for member_id, member in members_dict.items():
+            if not is_tracked(member):
+                continue
             if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
                 continue
             member_rows.append((subsystem_id, member_id, member))
         title_scope = get_scope_label(subsystem_id).capitalize()
+@tree.command(name="toggleuntracked", description="Toggle the 'untracked' status for a member (exclude/include in total count)")
+@app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
+async def toggle_untracked_slash(
+    interaction: discord.Interaction,
+    member_id: str = None,
+    subsystem_id: str = None,
+    target_user_id: str = None,
+):
+    """Toggle the 'untracked' status for a member (exclude/include in total count)."""
+    requester_id = interaction.user.id
+    system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
+    if error:
+        await interaction.response.send_message(error, ephemeral=True)
+        return
+    if not member_id:
+        await interaction.response.send_message("Usage: /toggleuntracked <member_id or name> [subsystem_id] [target_user_id]", ephemeral=True)
+        return
+    members_dict = get_system_members(system_id, subsystem_id)
+    if members_dict is None:
+        await interaction.response.send_message("Subsystem not found.", ephemeral=True)
+        return
+    # Try to resolve by ID or name
+    resolved_id, member, error_msg = resolve_member_identifier(members_dict, member_id)
+    if error_msg:
+        await interaction.response.send_message(f"Member not found: {error_msg}", ephemeral=True)
+        return
+    member["untracked"] = not member.get("untracked", False)
+    save_systems()
+    status = "now **untracked** (excluded from total count)" if member["untracked"] else "now **tracked** (included in total count)"
+    await interaction.response.send_message(f"Member **{member.get('name', resolved_id)}** is {status}.", ephemeral=True)
 
     if not member_rows:
         await interaction.response.send_message("No visible members found.", ephemeral=True)
@@ -4272,8 +4309,9 @@ async def members_list(
                 f"**{m['name']}** (ID `{member_id}`) | Scope: {scope_label} | Fronting: {fronting} | Co-fronts: {co_fronts} | Total Front Time: {duration}"
             )
 
+        total_count = len(member_rows)
         embed = discord.Embed(
-            title=f"Members List - {title_scope} (Page {page}/{total_pages})",
+            title=f"Members List - {title_scope} (Page {page}/{total_pages}) | Total: {total_count}",
             description="\n".join(desc_lines) or "No members found.",
             color=0x00FF00
         )

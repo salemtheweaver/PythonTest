@@ -1215,6 +1215,9 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
             access_levels = {"public", "friends"}
 
     scope_lower = (scope or "main").strip().lower()
+    def is_tracked(member):
+        return not member.get("untracked", False)
+
     if scope_lower == "all":
         member_rows = []
         scoped_members_lookup = {}
@@ -1223,6 +1226,8 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
             for member_id, member in scoped_members.items():
                 privacy_level = get_member_privacy_level(member)
                 if privacy_level not in access_levels:
+                    continue
+                if not is_tracked(member):
                     continue
                 member_rows.append((scope_id, member_id, member))
         title_scope = "Entire System"
@@ -1233,6 +1238,8 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         for member_id, member in members_dict.items():
             privacy_level = get_member_privacy_level(member)
             if privacy_level not in access_levels:
+                continue
+            if not is_tracked(member):
                 continue
             member_rows.append((None, member_id, member))
         title_scope = "Main System"
@@ -1247,8 +1254,37 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
             privacy_level = get_member_privacy_level(member)
             if privacy_level not in access_levels:
                 continue
+            if not is_tracked(member):
+                continue
             member_rows.append((scope, member_id, member))
         title_scope = get_scope_label(scope).capitalize()
+@bot.command(name="toggleuntracked", aliases=["untracked", "track", "untrack"])
+async def toggle_untracked_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None, target_user_id: str = None):
+    """Toggle the 'untracked' status for a member (exclude/include in total count)."""
+    if not member_id:
+        await ctx.send("Usage: Cor;toggleuntracked <member_id or name> [subsystem_id] [target_user_id]")
+        return
+
+    requester_id = ctx.author.id
+    system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
+    if error:
+        await ctx.send(error)
+        return
+
+    target_scope_id, members_dict, resolved_member_id, member, resolve_error = \
+        resolve_member_identifier_in_system(system, member_id, subsystem_id=subsystem_id)
+    if resolve_error:
+        await ctx.send(resolve_error)
+        return
+
+    if str(target_owner_id) != str(requester_id):
+        await ctx.send("You do not have permission to modify this member.")
+        return
+
+    member["untracked"] = not member.get("untracked", False)
+    save_systems()
+    status = "now **untracked** (excluded from total count)" if member["untracked"] else "now **tracked** (included in total count)"
+    await ctx.send(f"Member **{member.get('name', resolved_member_id)}** is {status}.")
 
     if not member_rows:
         await ctx.send("No visible members found.")
@@ -1280,8 +1316,9 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
                 f"**{member['name']}** (ID `{member_id}`) | Scope: {scope_label} | Fronting: {fronting} | Co-fronts: {co_fronts} | Total Front Time: {duration}"
             )
 
+        total_count = len(member_rows)
         embed = discord.Embed(
-            title=f"Members List - {title_scope} (Page {page_num}/{total_pages})",
+            title=f"Members List - {title_scope} (Total: {total_count}) (Page {page_num}/{total_pages})",
             description="\n".join(desc_lines) if desc_lines else "No members found.",
             color=discord.Color.green(),
         )
