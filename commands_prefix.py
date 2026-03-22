@@ -424,16 +424,23 @@ async def viewsystemcard_prefix(ctx: commands.Context, target_user_id: str = Non
     except (TypeError, ValueError):
         embed_color = int("00DE9B", 16)
 
-    desc_text = fit_box_drawing(profile.get("description") or "") or "No description set."
+    desc_raw = fit_box_drawing(profile.get("description") or "") or "No description set."
+
+    mode_val = system.get("mode", "system").title()
+    pronouns_val = profile.get("collective_pronouns") or "Not set"
+    tag_val = get_system_proxy_tag(system) or "Not set"
+
+    header = f"**Mode:** {mode_val}  ·  **Pronouns:** {pronouns_val}  ·  **Tag:** {tag_val}"
+    full_desc = f"{header}\n\n{desc_raw}"
+
+    if len(full_desc) > 4096:
+        full_desc = full_desc[:4093] + "..."
 
     embed = discord.Embed(
         title=f"{system.get('system_name', 'Unnamed System')} - System Card",
-        description=desc_text,
+        description=full_desc,
         color=embed_color
     )
-    embed.add_field(name="Mode", value=system.get("mode", "system").title(), inline=True)
-    embed.add_field(name="Collective Pronouns", value=profile.get("collective_pronouns") or "Not set", inline=True)
-    embed.add_field(name="System Tag", value=get_system_proxy_tag(system) or "Not set", inline=True)
 
     if profile.get("profile_pic"):
         embed.set_thumbnail(url=profile["profile_pic"])

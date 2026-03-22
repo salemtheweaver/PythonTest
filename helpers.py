@@ -1207,12 +1207,17 @@ def is_ephemeral_discord_attachment_url(value):
     raw = str(value or "").lower()
     return "ephemeral-attachments" in raw
 
-_BOX_CHARS = set("─━┄┅┈┉╌╍═┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬╭╮╯╰│┃║╎╏┆┇┊┋ ")
-_MAX_BOX_LINE = 10
+import re
+
+_DECORATIVE_CHARS = set("─━┄┅┈┉╌╍═┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬╭╮╯╰│┃║╎╏┆┇┊┋˘˙·•°¯_~˜∼≈⌇¸ ")
+_MAX_DECOR_RUN = 8  # max repeated decorative chars before shortening
+
+# Pattern: 4+ consecutive identical characters (catches ˘˘˘˘˘˘, ────, etc.)
+_REPEATED_CHAR_RE = re.compile(r'(.)\1{3,}')
 
 
 def fit_box_drawing(text):
-    """Shorten decorative box-drawing lines so they fit in mobile embeds."""
+    """Shorten decorative repeated-character runs so they fit in mobile embeds."""
     if not text:
         return text
     out = []
@@ -1221,8 +1226,11 @@ def fit_box_drawing(text):
         if not stripped:
             out.append("")
             continue
-        if all(ch in _BOX_CHARS for ch in stripped) and len(stripped) > _MAX_BOX_LINE:
-            stripped = stripped[0] + stripped[1] * (_MAX_BOX_LINE - 2) + stripped[-1]
+        # Shorten any run of 4+ repeated chars (decorative lines/separators)
+        stripped = _REPEATED_CHAR_RE.sub(
+            lambda m: m.group(0)[0] * min(len(m.group(0)), _MAX_DECOR_RUN),
+            stripped,
+        )
         out.append(stripped)
     # Collapse runs of 3+ blank lines to 2, trim leading/trailing blanks
     result = '\n'.join(out).strip('\n')
