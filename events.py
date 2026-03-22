@@ -30,6 +30,13 @@ _recent_cortex_proxies = {}
 _PROXY_DEDUP_WINDOW_SECONDS = 5
 _recent_processed_source_ids = {}
 
+# Track message IDs currently being proxied by on_message so on_message_edit
+# doesn't race and create a duplicate.
+_currently_proxying = set()
+# Track source message IDs that on_message has already proxied, so
+# on_message_edit can tell the difference between "new proxy" and "edit existing".
+_on_message_proxied_ids = {}
+
 
 def _mark_source_message_processed(message_id: int, source: str = "message") -> bool:
     """Return True if this source message/event pair was processed recently, else mark it now."""
@@ -248,8 +255,12 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
+    # Mark this message as currently being proxied so on_message_edit doesn't race.
+    _currently_proxying.add(message.id)
+
     webhook = await get_or_create_proxy_webhook(message.channel)
     if webhook is None:
+        _currently_proxying.discard(message.id)
         await message.channel.send(
             "I can't proxy in this channel type."
         )
@@ -339,7 +350,16 @@ async def on_message(message: discord.Message):
     if isinstance(message.channel, discord.Thread):
         send_kwargs["thread"] = message.channel
 
-    proxied_message = await webhook.send(**send_kwargs)
+    try:
+        proxied_message = await webhook.send(**send_kwargs)
+    except (discord.HTTPException, discord.Forbidden) as e:
+        _currently_proxying.discard(message.id)
+        return
+
+    # Record that on_message successfully proxied this source message.
+    _on_message_proxied_ids[message.id] = datetime.now(timezone.utc)
+    _currently_proxying.discard(message.id)
+
     remember_proxied_message_origin(
         proxied_message=proxied_message,
         source_message=message,
@@ -369,6 +389,12 @@ async def on_message(message: discord.Message):
                 message.channel, message.author.id, final_content, proxied_message.id
             )
         )
+
+    # Expire old entries from _on_message_proxied_ids
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=30)
+    stale = [k for k, v in _on_message_proxied_ids.items() if v < cutoff]
+    for k in stale:
+        _on_message_proxied_ids.pop(k, None)
 
 
 @bot.event
@@ -437,6 +463,25 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     # Ignore edits that don't change content and ignore bot/webhook traffic.
     if after.author.bot or after.webhook_id is not None:
         return
+
+    # If on_message is currently proxying this message, don't race with it.
+    if after.id in _currently_proxying:
+        return
+
+    # If on_message already proxied this message (e.g. embed resolution edit),
+    # only proceed if the content actually changed. before.content may be empty
+    # on cache miss, so compare against the audit entry instead.
+    if after.id in _on_message_proxied_ids:
+        # Find the existing proxied message to check if content changed
+        existing_proxied_id = None
+        for audit_id, audit_entry in PROXY_MESSAGE_AUDIT.items():
+            if audit_entry.get("source_message_id") == after.id:
+                existing_proxied_id = audit_id
+                break
+        if not existing_proxied_id:
+            # on_message proxied it but audit not recorded yet — skip to be safe
+            return
+
     if before.content == after.content:
         return
 
