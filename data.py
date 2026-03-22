@@ -16,8 +16,11 @@ SYSTEMS_DIR = "systems"  # GitHub directory for per-system files
 
 _save_worker_lock = threading.Lock()
 _save_worker_started = False
+_save_worker_idle = threading.Event()  # set when the worker is idle (not saving)
+_save_worker_idle.set()
 _save_condition = threading.Condition(_save_worker_lock)
 _pending_save_payload = None
+_shutdown_requested = False
 
 
 def _background_github_save_worker():
@@ -27,18 +30,24 @@ def _background_github_save_worker():
     while True:
         with _save_condition:
             while _pending_save_payload is None:
+                if _shutdown_requested:
+                    return
                 _save_condition.wait()
             payload = _pending_save_payload
             _pending_save_payload = None
 
-        # Save each system as its own small file instead of one monolith
-        for sys_id, sys_data in payload.get("systems", {}).items():
-            _github_save_system(sys_id, sys_data)
+        _save_worker_idle.clear()
+        try:
+            # Save each system as its own small file instead of one monolith
+            for sys_id, sys_data in payload.get("systems", {}).items():
+                _github_save_system(sys_id, sys_data)
 
-        # Only write monolith if it has non-system keys (e.g. _moderation)
-        non_system_keys = [k for k in payload if k != "systems"]
-        if non_system_keys:
-            _github_save_file(JSON_FILE, payload)
+            # Only write monolith if it has non-system keys (e.g. _moderation)
+            non_system_keys = [k for k in payload if k != "systems"]
+            if non_system_keys:
+                _github_save_file(JSON_FILE, payload)
+        finally:
+            _save_worker_idle.set()
 
 
 def _queue_github_save(data_obj):
@@ -75,21 +84,29 @@ def _queue_system_save(system_id, system_data):
 
 
 def flush_pending_save():
-    """Synchronously flush any queued GitHub save. Called on shutdown so in-flight
-    saves are not lost when the process receives SIGTERM."""
-    global _pending_save_payload
+    """Synchronously flush current in-memory state to GitHub on shutdown.
+
+    Signals the background worker to stop, waits for any in-progress save
+    to finish, then saves the live in-memory data so every system file on
+    GitHub reflects the latest state.
+    """
+    global _pending_save_payload, _shutdown_requested
     with _save_condition:
-        payload = _pending_save_payload
-        _pending_save_payload = None
-    if payload and GITHUB_TOKEN:
-        print("[INFO] Flushing pending GitHub saves before shutdown...")
-        for sys_id, sys_data in payload.get("systems", {}).items():
-            _github_save_system(sys_id, sys_data)
-        # Only write monolith if it has non-system keys (e.g. _moderation)
-        non_system_keys = [k for k in payload if k != "systems"]
-        if non_system_keys:
-            _github_save_file(JSON_FILE, payload)
-        print("[INFO] Shutdown save complete.")
+        _pending_save_payload = None  # prevent worker from picking up more work
+        _shutdown_requested = True
+        _save_condition.notify()
+    # Wait for any in-progress save to complete (up to 60s).
+    _save_worker_idle.wait(timeout=60)
+    if not GITHUB_TOKEN:
+        return
+    print("[INFO] Flushing current state to GitHub before shutdown...")
+    # Save the live in-memory data — this is always the most up-to-date.
+    for sys_id, sys_data in systems_data.get("systems", {}).items():
+        _github_save_system(sys_id, sys_data)
+    non_system_keys = [k for k in systems_data if k != "systems"]
+    if non_system_keys:
+        _github_save_file(JSON_FILE, systems_data)
+    print("[INFO] Shutdown save complete.")
 
 
 def _sigterm_handler(signum, frame):

@@ -46,6 +46,12 @@ class GroupOrderView(discord.ui.View):
         self.move_down_button.disabled = True
         self.save_button.disabled = True
         self.cancel_button.disabled = True
+        # Push the disabled state to Discord so the UI reflects the timeout.
+        if hasattr(self, "message") and self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except (discord.HTTPException, discord.NotFound):
+                pass
 
     @discord.ui.button(label="Focus Up", style=discord.ButtonStyle.secondary)
     async def focus_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):

@@ -114,15 +114,9 @@ COMMON_TIMEZONES = [
 ]
 
 TIMEZONE_FIXED_OFFSETS = {
+    # Only non-IANA names that ZoneInfo may not recognize.
+    # IANA names (America/New_York, etc.) are handled by ZoneInfo with proper DST.
     "UTC": 0, "Etc/GMT": 0,
-    "America/New_York": -5, "America/Chicago": -6,
-    "America/Denver": -7, "America/Los_Angeles": -8,
-    "America/Anchorage": -9, "Pacific/Honolulu": -10,
-    "Europe/London": 0, "Europe/Paris": 1, "Europe/Berlin": 1,
-    "Europe/Athens": 2,
-    "Asia/Tokyo": 9, "Asia/Seoul": 9, "Asia/Kolkata": 5.5,
-    "Asia/Singapore": 8,
-    "Australia/Sydney": 10, "Australia/Perth": 8,
 }
 
 DEFAULT_FOCUS_MODES = [

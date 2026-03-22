@@ -1751,16 +1751,25 @@ def parse_sendmessage_args(args_str):
 
 
 def add_scheduled_message(user_id, message, time_delta):
-    """Add a scheduled message for a user."""
+    """Add a scheduled message for a user and persist to systems_data."""
     send_at = datetime.now(timezone.utc) + time_delta
 
     if user_id not in SCHEDULED_MESSAGES:
         SCHEDULED_MESSAGES[user_id] = []
 
     SCHEDULED_MESSAGES[user_id].append({
-        "send_at": send_at,
+        "send_at": send_at.isoformat(),
         "message": message
     })
+
+    # Persist to systems_data so scheduled messages survive restarts.
+    system_id = get_user_system_id(user_id)
+    if system_id:
+        system = systems_data.get("systems", {}).get(system_id)
+        if system is not None:
+            persisted = system.setdefault("scheduled_messages", [])
+            persisted.append({"send_at": send_at.isoformat(), "message": message})
+            save_systems()
 
 
 # ---------------------------------------------------------------------------
@@ -2566,10 +2575,10 @@ def calculate_front_duration(member):
     for entry in member.get("front_history", []):
         start_iso = entry.get("start")
         end_iso = entry.get("end")
-        if not start_iso:
+        if not start_iso or not end_iso:
             continue
         start_dt = datetime.fromisoformat(start_iso)
-        end_dt = datetime.fromisoformat(end_iso) if end_iso else datetime.now(timezone.utc)
+        end_dt = datetime.fromisoformat(end_iso)
         total_seconds += (end_dt - start_dt).total_seconds()
 
     # Include current front

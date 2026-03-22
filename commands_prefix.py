@@ -124,6 +124,7 @@ from config import (
     with_instance_label,
     PROFILE_PRIVACY_LEVELS,
     TIMEZONE_FIXED_OFFSETS,
+    COMMON_TIMEZONES,
     EXTERNAL_MSG_LIMIT_COUNT,
     EXTERNAL_MSG_LIMIT_SECONDS,
 )
@@ -578,7 +579,7 @@ async def settimezone_prefix(ctx: commands.Context, *, timezone_name: str = None
     try:
         _ = ZoneInfo(normalized)
     except ZoneInfoNotFoundError:
-        if normalized not in TIMEZONE_FIXED_OFFSETS:
+        if normalized not in TIMEZONE_FIXED_OFFSETS and normalized not in COMMON_TIMEZONES:
             await ctx.send(
                 "Unknown timezone. Try a value like `America/New_York`, `UTC`, or `Asia/Tokyo`."
             )

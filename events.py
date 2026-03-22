@@ -36,9 +36,9 @@ def _mark_source_message_processed(message_id: int, source: str = "message") -> 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=_PROXY_DEDUP_WINDOW_SECONDS)
 
-    stale_ids = [mid for mid, ts in _recent_processed_source_ids.items() if ts < cutoff]
-    for mid in stale_ids:
-        _recent_processed_source_ids.pop(mid, None)
+    stale_keys = [key for key, ts in _recent_processed_source_ids.items() if ts < cutoff]
+    for key in stale_keys:
+        _recent_processed_source_ids.pop(key, None)
 
     dedupe_key = (str(source), int(message_id))
     previous = _recent_processed_source_ids.get(dedupe_key)
@@ -82,7 +82,8 @@ async def on_ready():
     # Syncing on every restart can trigger Cloudflare rate limits (error 1015)
     print("Skipping automatic command sync (use /synccommands to sync manually)")
 
-    from tasks import front_reminder_loop, weekly_mood_summary_loop, scheduled_messages_loop, birthday_reminder_loop
+    from tasks import front_reminder_loop, weekly_mood_summary_loop, scheduled_messages_loop, birthday_reminder_loop, load_persisted_scheduled_messages
+    load_persisted_scheduled_messages()
     if not front_reminder_loop.is_running():
         front_reminder_loop.start()
     if not weekly_mood_summary_loop.is_running():
@@ -368,8 +369,6 @@ async def on_message(message: discord.Message):
                 message.channel, message.author.id, final_content, proxied_message.id
             )
         )
-
-    await bot.process_commands(message)
 
 
 @bot.event

@@ -86,11 +86,52 @@ async def front_reminder_loop():
 async def before_front_reminder_loop():
     await bot.wait_until_ready()
 
+def load_persisted_scheduled_messages():
+    """Restore scheduled messages from systems_data into the in-memory SCHEDULED_MESSAGES dict."""
+    now = datetime.now(timezone.utc)
+    for system in systems_data.get("systems", {}).values():
+        owner_id = system.get("owner_id")
+        if not owner_id:
+            continue
+        persisted = system.get("scheduled_messages")
+        if not isinstance(persisted, list) or not persisted:
+            continue
+        kept = []
+        for msg_data in persisted:
+            try:
+                send_at = datetime.fromisoformat(msg_data["send_at"])
+            except (KeyError, ValueError, TypeError):
+                continue
+            if send_at > now:
+                kept.append(msg_data)
+                SCHEDULED_MESSAGES.setdefault(owner_id, []).append(msg_data)
+        system["scheduled_messages"] = kept
+    if SCHEDULED_MESSAGES:
+        print(f"[INFO] Restored {sum(len(v) for v in SCHEDULED_MESSAGES.values())} scheduled messages from persisted data")
+
+
+def _sync_scheduled_messages_to_systems():
+    """Sync in-memory SCHEDULED_MESSAGES back to systems_data for persistence."""
+    any_changes = False
+    for system in systems_data.get("systems", {}).values():
+        owner_id = system.get("owner_id")
+        if not owner_id:
+            continue
+        current = SCHEDULED_MESSAGES.get(owner_id, [])
+        persisted = system.get("scheduled_messages", [])
+        if len(current) != len(persisted):
+            system["scheduled_messages"] = list(current)
+            any_changes = True
+    if any_changes:
+        save_systems()
+
+
 @tasks.loop(minutes=1)
 async def scheduled_messages_loop():
     """Check and deliver scheduled messages when their time arrives."""
     now = datetime.now(timezone.utc)
     users_to_cleanup = []
+    any_delivered = False
 
     for user_id, messages in SCHEDULED_MESSAGES.items():
         delivered = []
@@ -105,10 +146,10 @@ async def scheduled_messages_loop():
                 if now >= send_at:
                     try:
                         user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
-                        # Debug log for delivery attempt (no message content)
                         print(f"[DEBUG] Attempting scheduled DM delivery to user {user_id} at {send_at}")
                         await user.send(msg_data["message"])
                         delivered.append(msg_data)
+                        any_delivered = True
                     except (ValueError, discord.Forbidden, discord.HTTPException):
                         print(f"[DEBUG] Scheduled DM delivery failed for user {user_id} at {send_at}")
                         pass
@@ -124,6 +165,10 @@ async def scheduled_messages_loop():
 
     for user_id in users_to_cleanup:
         del SCHEDULED_MESSAGES[user_id]
+
+    # Sync delivered/expired removals back to persistent storage.
+    if any_delivered or users_to_cleanup:
+        _sync_scheduled_messages_to_systems()
 
 @scheduled_messages_loop.before_loop
 async def before_scheduled_messages_loop():
@@ -289,8 +334,8 @@ async def birthday_reminder_loop():
             sent_keys.pop(key, None)
             any_updates = True
 
-    # Always save after processing each system to guarantee persistence of sent_keys
-    save_systems()
+    if any_updates:
+        save_systems()
 
 
 @birthday_reminder_loop.before_loop

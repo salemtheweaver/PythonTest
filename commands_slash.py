@@ -139,7 +139,7 @@ from config import (
     EXTERNAL_MSG_LIMIT_SECONDS,
     PROFILE_PRIVACY_LEVELS,
 )
-from views import GroupOrderView
+from views import GroupOrderView, TagSelect, ConfirmTags, TagView, TagMultiSelect, TagMultiView
 
 
 # =============================================
@@ -155,70 +155,6 @@ def format_us(iso_string):
         return dt.strftime("%m/%d/%Y %I:%M %p")
     except Exception:
         return iso_string
-
-
-# =============================================
-# Tag selection views
-# =============================================
-class TagSelect(discord.ui.Select):
-    def __init__(self, available_tags, preselected=None):
-        options = [
-            discord.SelectOption(label=tag, value=tag, default=(tag in preselected if preselected else False))
-            for tag in available_tags
-        ][:25]
-        super().__init__(
-            placeholder="Select tags (up to 25 shown)...",
-            min_values=0,
-            max_values=len(options) if options else 1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        self.view.selected_tags = self.values
-        await interaction.response.defer()
-
-class ConfirmTags(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Confirm", style=discord.ButtonStyle.green)
-
-    async def callback(self, interaction: discord.Interaction):
-        self.view.stop()
-        await interaction.response.defer()
-
-class TagView(discord.ui.View):
-    def __init__(self, available_tags, preselected=None):
-        super().__init__(timeout=120)
-        self.selected_tags = preselected or []
-        if available_tags:
-            self.add_item(TagSelect(available_tags, preselected))
-        self.add_item(ConfirmTags())
-
-class TagMultiSelect(discord.ui.Select):
-    def __init__(self, available_tags, members_dict):
-        self.members_dict = members_dict
-        options = [discord.SelectOption(label=tag, value=tag) for tag in available_tags[:25]]
-        super().__init__(
-            placeholder="Select one or more tags (up to 25 shown)...",
-            min_values=1,
-            max_values=len(options) if options else 1,
-            options=options
-        )
-
-    async def callback(self, interaction: discord.Interaction):
-        tag_list = self.values
-        filtered = [m for m in self.members_dict.values() if all(t in m.get("tags", []) for t in tag_list)]
-        if not filtered:
-            desc = "No members match all selected tags."
-        else:
-            desc = "\n".join(f"**{m['name']}** — ID `{m['id']}` — Tags: {', '.join(m.get('tags', []))}" for m in filtered)
-        embed = discord.Embed(title=f"Members matching tags: {', '.join(tag_list)}", description=desc, color=discord.Color.green())
-        await interaction.response.edit_message(embed=embed, view=self.view)
-
-class TagMultiView(discord.ui.View):
-    def __init__(self, available_tags, members_dict):
-        super().__init__(timeout=None)
-        if available_tags:
-            self.add_item(TagMultiSelect(available_tags, members_dict))
 
 
 # =============================================
