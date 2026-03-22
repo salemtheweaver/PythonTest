@@ -1,0 +1,2 @@
+[deploy]
+watchPatterns = ["*.py", "requirements.txt", "runtime.txt", "Procfile"]

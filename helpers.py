@@ -185,7 +185,7 @@ async def prefix_command_gate(ctx: commands.Context):
         await ctx.send("You are temporarily suspended from bot usage.")
         return False
 
-    if command_name == "register":
+    if command_name in ("register", "help"):
         return True
 
     mode = get_user_mode(ctx.author.id)
@@ -231,7 +231,7 @@ async def _global_interaction_check(interaction: discord.Interaction) -> bool:
             )
         return False
 
-    if command_name == "register":
+    if command_name in ("register", "help"):
         return True
 
     mode = get_user_mode(interaction.user.id)
