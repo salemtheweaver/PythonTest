@@ -367,6 +367,15 @@ async def on_message(message: discord.Message):
     if isinstance(message.channel, discord.Thread):
         send_kwargs["thread"] = message.channel
 
+    # Delete the original FIRST — only send the proxy if deletion succeeds.
+    # This guarantees at most one message is ever visible.
+    try:
+        await message.delete()
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException) as e:
+        print(f"[PROXY-DEBUG] on_message FAILED to delete original msg {message.id}: {e} — skipping proxy")
+        _currently_proxying.discard(message.id)
+        return
+
     print(f"[PROXY-DEBUG] on_message sending proxy for msg {message.id} by {message.author} in #{getattr(message.channel, 'name', '?')}: '{final_content[:80]}'")
 
     try:
@@ -396,21 +405,6 @@ async def on_message(message: discord.Message):
         active_autoproxy_settings["latch_scope_id"] = scope_id_for_latch
         active_autoproxy_settings["latch_member_id"] = proxy_member.get("id")
         save_systems()
-
-    try:
-        await message.delete()
-    except discord.Forbidden:
-        print(f"[PROXY-DEBUG] on_message FAILED to delete original msg {message.id} (Forbidden - missing Manage Messages?)")
-    except discord.HTTPException as e:
-        print(f"[PROXY-DEBUG] on_message FAILED to delete original msg {message.id}: {e}")
-
-    # Clean up duplicate proxy messages from other bots (e.g. PluralKit)
-    if proxied_message and final_content:
-        asyncio.create_task(
-            _cleanup_duplicate_proxy_messages(
-                message.channel, message.author.id, final_content, proxied_message.id, webhook.id
-            )
-        )
 
     # Expire old entries from _on_message_proxied_ids
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=30)
@@ -685,7 +679,14 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
             existing_proxied_id = None
 
     if not existing_proxied_id:
-        print(f"[PROXY-DEBUG] on_message_edit SENDING NEW proxy for msg {after.id} by {after.author} (before.content={repr(before.content[:50] if before.content else None)})")
+        # Delete original first — only proxy if deletion succeeds.
+        try:
+            await after.delete()
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException) as e:
+            print(f"[PROXY-DEBUG] on_message_edit FAILED to delete original msg {after.id}: {e} — skipping proxy")
+            return
+
+        print(f"[PROXY-DEBUG] on_message_edit SENDING NEW proxy for msg {after.id} by {after.author}")
         proxied_message = await webhook.send(**send_kwargs)
         remember_proxied_message_origin(
             proxied_message=proxied_message,
@@ -695,26 +696,17 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
             scope_id=scope_id_for_latch,
             member_data=proxy_member,
         )
+    else:
+        # Edited an existing proxy — still delete the source edit.
+        try:
+            await after.delete()
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            pass
 
     if explicit_proxy and latch_update:
         active_autoproxy_settings["latch_scope_id"] = scope_id_for_latch
         active_autoproxy_settings["latch_member_id"] = proxy_member.get("id")
         save_systems()
-
-    try:
-        await after.delete()
-    except discord.Forbidden:
-        pass
-    except discord.HTTPException:
-        pass
-
-    # Clean up duplicate proxy messages from other bots (e.g. PluralKit)
-    if not existing_proxied_id and final_content:
-        asyncio.create_task(
-            _cleanup_duplicate_proxy_messages(
-                after.channel, after.author.id, final_content, proxied_message.id, webhook.id
-            )
-        )
 
 
 def setup_events():
