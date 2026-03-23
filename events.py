@@ -355,11 +355,16 @@ async def on_message(message: discord.Message):
     if isinstance(message.channel, discord.Thread):
         send_kwargs["thread"] = message.channel
 
+    print(f"[PROXY-DEBUG] on_message sending proxy for msg {message.id} by {message.author} in #{getattr(message.channel, 'name', '?')}: '{final_content[:80]}'")
+
     try:
         proxied_message = await webhook.send(**send_kwargs)
     except (discord.HTTPException, discord.Forbidden) as e:
+        print(f"[PROXY-DEBUG] on_message webhook.send FAILED for msg {message.id}: {e}")
         _currently_proxying.discard(message.id)
         return
+
+    print(f"[PROXY-DEBUG] on_message proxied msg {message.id} -> webhook msg {proxied_message.id}")
 
     # Record that on_message successfully proxied this source message.
     _on_message_proxied_ids[message.id] = datetime.now(timezone.utc)
@@ -383,9 +388,9 @@ async def on_message(message: discord.Message):
     try:
         await message.delete()
     except discord.Forbidden:
-        pass
-    except discord.HTTPException:
-        pass
+        print(f"[PROXY-DEBUG] on_message FAILED to delete original msg {message.id} (Forbidden - missing Manage Messages?)")
+    except discord.HTTPException as e:
+        print(f"[PROXY-DEBUG] on_message FAILED to delete original msg {message.id}: {e}")
 
     # Clean up duplicate proxy messages from other bots (e.g. PluralKit)
     if proxied_message and final_content:
@@ -471,6 +476,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
 
     # If on_message is currently proxying this message, don't race with it.
     if after.id in _currently_proxying:
+        print(f"[PROXY-DEBUG] on_message_edit SKIPPED (currently_proxying) msg {after.id}")
         return
 
     # If on_message already proxied this message (e.g. embed resolution edit),
@@ -662,6 +668,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
 
     if existing_proxied_id:
         # Edit the existing proxied message instead of creating a duplicate
+        print(f"[PROXY-DEBUG] on_message_edit EDITING existing proxy {existing_proxied_id} for msg {after.id}")
         try:
             edit_kwargs = {"content": final_content}
             if reply_embed is not None:
@@ -672,6 +679,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
             existing_proxied_id = None
 
     if not existing_proxied_id:
+        print(f"[PROXY-DEBUG] on_message_edit SENDING NEW proxy for msg {after.id} by {after.author} (before.content={repr(before.content[:50] if before.content else None)})")
         proxied_message = await webhook.send(**send_kwargs)
         remember_proxied_message_origin(
             proxied_message=proxied_message,

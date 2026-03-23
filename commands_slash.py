@@ -5221,6 +5221,8 @@ async def refresh(interaction: discord.Interaction):
 # /synccommands — Force sync all slash commands globally (admin only)
 @tree.command(name="synccommands", description="Force sync all commands globally")
 async def synccommands(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+
     is_bot_admin = is_bot_moderator_user(interaction.user.id)
 
     # interaction.permissions is the most reliable source for slash command invocations.
@@ -5238,20 +5240,14 @@ async def synccommands(interaction: discord.Interaction):
 
     if not is_bot_admin and not is_guild_admin:
         location = "server" if interaction.guild is not None else "DM"
-        if not interaction.response.is_done():
-            await interaction.response.send_message(
-                (
-                    "You do not have permission to use this command. "
-                    f"Detected: user_id={interaction.user.id}, context={location}, "
-                    f"bot_admin={is_bot_admin}, guild_admin={is_guild_admin}. "
-                    "Use this command in a server as a Discord administrator, "
-                    "or add your user ID to CORTEX_ADMIN_USER_IDS and redeploy."
-                ),
-                ephemeral=True,
-            )
+        await interaction.followup.send(
+            "You do not have permission to use this command. "
+            f"Detected: user_id={interaction.user.id}, context={location}, "
+            f"bot_admin={is_bot_admin}, guild_admin={is_guild_admin}. "
+            "Use this command in a server as a Discord administrator, "
+            "or add your user ID to CORTEX_ADMIN_USER_IDS and redeploy.",
+        )
         return
-
-    await interaction.response.defer()
 
     removed_guild_scoped = 0
     # Clear any legacy guild-scoped copies to avoid duplicate entries in the slash menu.
