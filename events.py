@@ -115,6 +115,9 @@ async def on_message(message: discord.Message):
     if _mark_source_message_processed(message.id, source="message"):
         return
 
+    # Mark immediately so on_message_edit cannot race during any await below.
+    _currently_proxying.add(message.id)
+
     pending_until = PENDING_TIMEZONE_PROMPTS.get(message.author.id)
     if pending_until:
         now_utc = datetime.now(timezone.utc)
@@ -124,11 +127,13 @@ async def on_message(message: discord.Message):
             system_id = get_user_system_id(message.author.id)
             if not system_id:
                 PENDING_TIMEZONE_PROMPTS.pop(message.author.id, None)
+                _currently_proxying.discard(message.id)
                 await message.channel.send("You must register a main system first using /register.")
                 return
 
             normalized = normalize_timezone_name(message.content)
             if not normalized:
+                _currently_proxying.discard(message.id)
                 await message.channel.send("Please provide a valid timezone value (example: EST, UTC, America/New_York).")
                 return
 
@@ -141,6 +146,7 @@ async def on_message(message: discord.Message):
                     valid = True
 
             if not valid:
+                _currently_proxying.discard(message.id)
                 await message.channel.send(
                     "Unknown timezone. Try EST, UTC, America/New_York, Europe/London, or Asia/Tokyo."
                 )
@@ -149,23 +155,27 @@ async def on_message(message: discord.Message):
             system = systems_data.get("systems", {}).get(system_id)
             if not system:
                 PENDING_TIMEZONE_PROMPTS.pop(message.author.id, None)
+                _currently_proxying.discard(message.id)
                 await message.channel.send("System not found.")
                 return
 
             system["timezone"] = normalized
             save_systems()
             PENDING_TIMEZONE_PROMPTS.pop(message.author.id, None)
+            _currently_proxying.discard(message.id)
             await message.channel.send(f"Timezone set to **{normalized}**.")
             return
 
     # If message starts with a backslash, do not proxy (bypass all proxy logic)
     if message.content.startswith("\\"):
         print(f"[DEBUG] Proxy bypass triggered for message: '{message.content}'")
+        _currently_proxying.discard(message.id)
         return await bot.process_commands(message)
 
 
     ctx = await bot.get_context(message)
     if ctx.valid:
+        _currently_proxying.discard(message.id)
         await bot.process_commands(message)
         return
 
@@ -177,11 +187,9 @@ async def on_message(message: discord.Message):
             is_forum_starter_post = message.id == message.channel.id
 
     if is_forum_starter_post:
+        _currently_proxying.discard(message.id)
         await bot.process_commands(message)
         return
-
-    # Mark early so on_message_edit can detect we're handling this message.
-    _currently_proxying.add(message.id)
 
     # Track proxy resolution for this message.
     explicit_proxy = False
