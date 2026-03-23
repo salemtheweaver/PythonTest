@@ -479,19 +479,11 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
         print(f"[PROXY-DEBUG] on_message_edit SKIPPED (currently_proxying) msg {after.id}")
         return
 
-    # If on_message already proxied this message (e.g. embed resolution edit),
-    # only proceed if the content actually changed. before.content may be empty
-    # on cache miss, so compare against the audit entry instead.
+    # If on_message already proxied this message, ALWAYS skip.
+    # Edits after proxy are irrelevant — the original was deleted and replaced.
     if after.id in _on_message_proxied_ids:
-        # Find the existing proxied message to check if content changed
-        existing_proxied_id = None
-        for audit_id, audit_entry in PROXY_MESSAGE_AUDIT.items():
-            if audit_entry.get("source_message_id") == after.id:
-                existing_proxied_id = audit_id
-                break
-        if not existing_proxied_id:
-            # on_message proxied it but audit not recorded yet — skip to be safe
-            return
+        print(f"[PROXY-DEBUG] on_message_edit SKIPPED (already proxied by on_message) msg {after.id}")
+        return
 
     # If before.content is empty, the message wasn't cached — this is likely an
     # embed-unfurl edit, not a real user edit.  Skip to avoid duplicate proxies.
