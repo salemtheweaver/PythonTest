@@ -58,24 +58,26 @@ def _mark_source_message_processed(message_id: int, source: str = "message") -> 
 
 async def _cleanup_duplicate_proxy_messages(channel, original_author_id, proxied_content, our_proxied_message_id):
     """After Cortex proxies, wait briefly then delete duplicate webhook messages from other proxy bots."""
-    await asyncio.sleep(1.5)
-
-    try:
-        async for msg in channel.history(limit=10, after=discord.Object(id=our_proxied_message_id - 1)):
-            # Skip our own proxied message
-            if msg.id == our_proxied_message_id:
-                continue
-            # Only target webhook messages (other proxy bots use webhooks)
-            if msg.webhook_id is None:
-                continue
-            # Check if content matches what we just proxied
-            if msg.content and msg.content.strip() == proxied_content.strip():
-                try:
-                    await msg.delete()
-                except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-                    pass
-    except (discord.Forbidden, discord.HTTPException):
-        pass
+    # Run two passes: one quick check and one delayed, so we catch both fast and slow bots.
+    for delay in (1.5, 4.0):
+        await asyncio.sleep(delay)
+        try:
+            async for msg in channel.history(limit=15):
+                # Skip our own proxied message
+                if msg.id == our_proxied_message_id:
+                    continue
+                # Only target webhook messages (other proxy bots use webhooks)
+                if msg.webhook_id is None:
+                    continue
+                # Check if content matches what we just proxied
+                if msg.content and msg.content.strip() == proxied_content.strip():
+                    try:
+                        await msg.delete()
+                        print(f"[PROXY-DEBUG] Deleted duplicate webhook msg {msg.id} from webhook {msg.webhook_id}")
+                    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                        pass
+        except (discord.Forbidden, discord.HTTPException):
+            pass
 
 
 # -----------------------------
