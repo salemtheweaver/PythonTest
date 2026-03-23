@@ -178,6 +178,9 @@ async def on_message(message: discord.Message):
         await bot.process_commands(message)
         return
 
+    # Mark early so on_message_edit can detect we're handling this message.
+    _currently_proxying.add(message.id)
+
     # Track proxy resolution for this message.
     explicit_proxy = False
     latch_update = False
@@ -192,6 +195,7 @@ async def on_message(message: discord.Message):
         system = systems_data.get("systems", {}).get(system_id)
 
     if system is None:
+        _currently_proxying.discard(message.id)
         await bot.process_commands(message)
         return
 
@@ -208,6 +212,7 @@ async def on_message(message: discord.Message):
             proxied_text = message.content[len(PROXY_PREFIX):].lstrip()
             scope_id_for_latch, proxy_member = get_fronting_member_for_user(message.author.id)
             if not proxy_member:
+                _currently_proxying.discard(message.id)
                 await message.channel.send(
                     f"{message.author.mention} no currently fronting member was found. Use /switchmember first."
                 )
@@ -231,6 +236,7 @@ async def on_message(message: discord.Message):
                     latch_member_id = active_autoproxy_settings.get("latch_member_id")
                     proxy_member = get_member_from_scope(system, scope_id_for_latch, latch_member_id)
                     if latch_member_id is not None and proxy_member is None:
+                        _currently_proxying.discard(message.id)
                         await message.channel.send(
                             f"{message.author.mention} autoproxy is set to latch, but the saved latched member could not be found. Proxy a message with a member tag first to set a new latch target."
                         )
@@ -240,6 +246,7 @@ async def on_message(message: discord.Message):
 
     # If no proxy triggered, process as normal command
     if not proxy_member:
+        _currently_proxying.discard(message.id)
         await bot.process_commands(message)
         return
 
@@ -252,11 +259,9 @@ async def on_message(message: discord.Message):
             attachment_fallback_urls.append(attachment.url)
 
     if not proxied_text and not proxied_files and not attachment_fallback_urls:
+        _currently_proxying.discard(message.id)
         await bot.process_commands(message)
         return
-
-    # Mark this message as currently being proxied so on_message_edit doesn't race.
-    _currently_proxying.add(message.id)
 
     webhook = await get_or_create_proxy_webhook(message.channel)
     if webhook is None:
@@ -482,7 +487,9 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
             # on_message proxied it but audit not recorded yet — skip to be safe
             return
 
-    if before.content == after.content:
+    # If before.content is empty, the message wasn't cached — this is likely an
+    # embed-unfurl edit, not a real user edit.  Skip to avoid duplicate proxies.
+    if not before.content or before.content == after.content:
         return
 
     # Prevent accidental double-processing of the same edited source message.

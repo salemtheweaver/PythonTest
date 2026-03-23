@@ -2,97 +2,80 @@ import discord
 
 from config import bot
 from data import systems_data, save_systems
-from helpers import get_group_settings, build_group_order_embed, get_scope_label, get_system_members
+from helpers import (
+    get_group_settings, build_group_order_cv2, get_scope_label, get_system_members,
+    cv2_view, cv2_simple, cv2_container, _cv2_color,
+)
 
 
 # -----------------------------
-# Group order reordering UI
+# Group order reordering UI (CV2 LayoutView)
 # -----------------------------
-class GroupOrderView(discord.ui.View):
-    def __init__(self, owner_id, system):
-        super().__init__(timeout=180)
-        self.owner_id = owner_id
-        self.system = system
-        settings = get_group_settings(system)
-        groups = settings.get("groups", {})
-        self.order = [gid for gid in settings.get("order", []) if gid in groups]
-        self.focus_index = 0
-        self._update_button_state()
 
-    def _update_button_state(self):
-        no_groups = len(self.order) == 0
-        at_top = self.focus_index <= 0
-        at_bottom = self.focus_index >= len(self.order) - 1
+class _FocusUpButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Focus Up", style=discord.ButtonStyle.secondary)
 
-        self.focus_up_button.disabled = no_groups or at_top
-        self.focus_down_button.disabled = no_groups or at_bottom
-        self.move_up_button.disabled = no_groups or at_top
-        self.move_down_button.disabled = no_groups or at_bottom
-        self.save_button.disabled = no_groups
+    async def callback(self, interaction: discord.Interaction):
+        view: GroupOrderView = self.view
+        if view.focus_index > 0:
+            view.focus_index -= 1
+        view._rebuild()
+        await interaction.response.edit_message(view=view)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id != self.owner_id:
-            await interaction.response.send_message("Only the command author can use this UI.", ephemeral=True)
-            return False
-        return True
 
-    def current_embed(self):
-        return build_group_order_embed(self.system, self.order, self.focus_index)
+class _FocusDownButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Focus Down", style=discord.ButtonStyle.secondary)
 
-    async def on_timeout(self):
-        self.focus_up_button.disabled = True
-        self.focus_down_button.disabled = True
-        self.move_up_button.disabled = True
-        self.move_down_button.disabled = True
-        self.save_button.disabled = True
-        self.cancel_button.disabled = True
-        # Push the disabled state to Discord so the UI reflects the timeout.
-        if hasattr(self, "message") and self.message is not None:
-            try:
-                await self.message.edit(view=self)
-            except (discord.HTTPException, discord.NotFound):
-                pass
+    async def callback(self, interaction: discord.Interaction):
+        view: GroupOrderView = self.view
+        if view.focus_index < len(view.order) - 1:
+            view.focus_index += 1
+        view._rebuild()
+        await interaction.response.edit_message(view=view)
 
-    @discord.ui.button(label="Focus Up", style=discord.ButtonStyle.secondary)
-    async def focus_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.focus_index > 0:
-            self.focus_index -= 1
-        self._update_button_state()
-        await interaction.response.edit_message(embed=self.current_embed(), view=self)
 
-    @discord.ui.button(label="Focus Down", style=discord.ButtonStyle.secondary)
-    async def focus_down_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.focus_index < len(self.order) - 1:
-            self.focus_index += 1
-        self._update_button_state()
-        await interaction.response.edit_message(embed=self.current_embed(), view=self)
+class _MoveUpButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Move Up", style=discord.ButtonStyle.primary)
 
-    @discord.ui.button(label="Move Up", style=discord.ButtonStyle.primary)
-    async def move_up_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.focus_index > 0:
-            i = self.focus_index
-            self.order[i - 1], self.order[i] = self.order[i], self.order[i - 1]
-            self.focus_index -= 1
-        self._update_button_state()
-        await interaction.response.edit_message(embed=self.current_embed(), view=self)
+    async def callback(self, interaction: discord.Interaction):
+        view: GroupOrderView = self.view
+        if view.focus_index > 0:
+            i = view.focus_index
+            view.order[i - 1], view.order[i] = view.order[i], view.order[i - 1]
+            view.focus_index -= 1
+        view._rebuild()
+        await interaction.response.edit_message(view=view)
 
-    @discord.ui.button(label="Move Down", style=discord.ButtonStyle.primary)
-    async def move_down_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if self.focus_index < len(self.order) - 1:
-            i = self.focus_index
-            self.order[i + 1], self.order[i] = self.order[i], self.order[i + 1]
-            self.focus_index += 1
-        self._update_button_state()
-        await interaction.response.edit_message(embed=self.current_embed(), view=self)
 
-    @discord.ui.button(label="Save", style=discord.ButtonStyle.success)
-    async def save_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        settings = get_group_settings(self.system)
+class _MoveDownButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Move Down", style=discord.ButtonStyle.primary)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: GroupOrderView = self.view
+        if view.focus_index < len(view.order) - 1:
+            i = view.focus_index
+            view.order[i + 1], view.order[i] = view.order[i], view.order[i + 1]
+            view.focus_index += 1
+        view._rebuild()
+        await interaction.response.edit_message(view=view)
+
+
+class _SaveButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Save", style=discord.ButtonStyle.success)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: GroupOrderView = self.view
+        settings = get_group_settings(view.system)
         groups = settings.get("groups", {})
 
         # Keep any newly created groups not shown in this session appended at the end.
-        seen = set(self.order)
-        merged_order = [gid for gid in self.order if gid in groups]
+        seen = set(view.order)
+        merged_order = [gid for gid in view.order if gid in groups]
         for gid in settings.get("order", []):
             if gid in groups and gid not in seen:
                 merged_order.append(gid)
@@ -102,13 +85,79 @@ class GroupOrderView(discord.ui.View):
 
         settings["order"] = merged_order
         save_systems()
-        await interaction.response.edit_message(content="Group order saved.", embed=None, view=None)
-        self.stop()
+        done_view = cv2_simple("Group Order", "Group order saved.", color="00DE9B")
+        await interaction.response.edit_message(view=done_view)
+        view.stop()
 
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
-    async def cancel_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="Group order edit cancelled.", embed=None, view=None)
-        self.stop()
+
+class _CancelButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Cancel", style=discord.ButtonStyle.danger)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: GroupOrderView = self.view
+        cancel_view = cv2_simple("Group Order", "Group order edit cancelled.")
+        await interaction.response.edit_message(view=cancel_view)
+        view.stop()
+
+
+class GroupOrderView(discord.ui.LayoutView):
+    def __init__(self, owner_id, system):
+        super().__init__(timeout=180)
+        self.owner_id = owner_id
+        self.system = system
+        settings = get_group_settings(system)
+        groups = settings.get("groups", {})
+        self.order = [gid for gid in settings.get("order", []) if gid in groups]
+        self.focus_index = 0
+        self._rebuild()
+
+    def _rebuild(self):
+        self.clear_items()
+        # Content container from helpers
+        container = build_group_order_cv2(self.system, self.order, self.focus_index)
+        self.add_item(container)
+
+        # Button state
+        no_groups = len(self.order) == 0
+        at_top = self.focus_index <= 0
+        at_bottom = self.focus_index >= len(self.order) - 1
+
+        focus_up = _FocusUpButton()
+        focus_up.disabled = no_groups or at_top
+        focus_down = _FocusDownButton()
+        focus_down.disabled = no_groups or at_bottom
+        move_up = _MoveUpButton()
+        move_up.disabled = no_groups or at_top
+        move_down = _MoveDownButton()
+        move_down.disabled = no_groups or at_bottom
+        save = _SaveButton()
+        save.disabled = no_groups
+        cancel = _CancelButton()
+
+        row1 = discord.ui.ActionRow(focus_up, focus_down, move_up, move_down)
+        row2 = discord.ui.ActionRow(save, cancel)
+        self.add_item(row1)
+        self.add_item(row2)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await interaction.response.send_message("Only the command author can use this UI.", ephemeral=True)
+            return False
+        return True
+
+    async def on_timeout(self):
+        # Disable all buttons on timeout
+        for item in self.children:
+            if isinstance(item, discord.ui.ActionRow):
+                for child in item.children:
+                    if isinstance(child, discord.ui.Button):
+                        child.disabled = True
+        if hasattr(self, "message") and self.message is not None:
+            try:
+                await self.message.edit(view=self)
+            except (discord.HTTPException, discord.NotFound):
+                pass
 
 
 # -----------------------------
@@ -168,15 +217,33 @@ class TagMultiSelect(discord.ui.Select):
             desc = "No members match all selected tags."
         else:
             desc = "\n".join(f"**{m['name']}** — ID `{m['id']}` — Tags: {', '.join(m.get('tags', []))}" for m in filtered)
-        embed = discord.Embed(title=f"Members matching tags: {', '.join(tag_list)}", description=desc, color=discord.Color.green())
-        await interaction.response.edit_message(embed=embed, view=self.view)
+        title = f"Members matching tags: {', '.join(tag_list)}"
+        container = cv2_container(
+            discord.ui.TextDisplay(f"### {title}\n{desc}"),
+            color="00DE9B",
+        )
+        # Rebuild a LayoutView with the result container and the select dropdown
+        result_view = discord.ui.LayoutView()
+        result_view.add_item(container)
+        # Re-add the tag select so users can filter again
+        result_view.add_item(discord.ui.ActionRow(TagMultiSelect(
+            [opt.value for opt in self.options],
+            self.members_dict,
+        )))
+        await interaction.response.edit_message(view=result_view)
 
 
-class TagMultiView(discord.ui.View):
+class TagMultiView(discord.ui.LayoutView):
     def __init__(self, available_tags, members_dict):
         super().__init__(timeout=None)
+        # Intro container
+        intro = cv2_container(
+            discord.ui.TextDisplay("### Tag Browser\nSelect one or more tags from the dropdown."),
+            color="00DE9B",
+        )
+        self.add_item(intro)
         if available_tags:
-            self.add_item(TagMultiSelect(available_tags, members_dict))
+            self.add_item(discord.ui.ActionRow(TagMultiSelect(available_tags, members_dict)))
 
 
 # -----------------------------

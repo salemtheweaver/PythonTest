@@ -48,8 +48,14 @@ from helpers import (
     calc_mode_stats,
     normalize_hex,
     fit_box_drawing,
-    build_member_profile_embed,
-    build_subsystem_card_embed,
+    build_member_profile_cv2,
+    build_subsystem_card_cv2,
+    build_system_card_cv2,
+    build_group_order_cv2,
+    cv2_view,
+    cv2_container,
+    cv2_simple,
+    _cv2_color,
     get_system_tag_list,
     get_available_tags_for_system,
     add_custom_tags_to_system,
@@ -607,9 +613,9 @@ async def viewsubsystemcard(
         return
 
     subsystem_data = subsystems[subsystem_id]
-    embed = build_subsystem_card_embed(subsystem_data, subsystem_id, system)
+    container = build_subsystem_card_cv2(subsystem_data, subsystem_id, system)
 
-    await interaction.response.send_message(embed=embed, ephemeral=not show_to_others)
+    await interaction.response.send_message(view=cv2_view(container), ephemeral=not show_to_others)
 
 
 # /editsubsystemcard — Edit a subsystem's description, color, or images
@@ -666,7 +672,7 @@ async def editsubsystemcard(
             warnings.append("banner")
 
     save_systems()
-    embed = build_subsystem_card_embed(subsystem_data, subsystem_id, system)
+    container = build_subsystem_card_cv2(subsystem_data, subsystem_id, system)
     msg = "Subsystem card updated."
     if warnings:
         joined = ", ".join(warnings)
@@ -674,7 +680,7 @@ async def editsubsystemcard(
             f"\n\u26a0\ufe0f Discord provided an expiring attachment URL for {joined}. "
             "If images disappear later, try uploading via a direct image URL or re-uploading."
         )
-    await interaction.response.send_message(msg, embed=embed, ephemeral=True)
+    await interaction.response.send_message(msg, view=cv2_view(container), ephemeral=True)
 
 
 # /listsubsystems — List all subsystems with IDs and member counts
@@ -709,13 +715,13 @@ async def listsubsystems(
         member_count = len(sub_data.get("members", {}))
         lines.append(f"🧩 **{sub_name}** (`{sub_id}`) — {member_count} members")
 
-    embed = discord.Embed(
-        title=f"🧩 {system.get('system_name', 'System')} Subsystems",
-        description="\n".join(lines),
-        color=discord.Color.blurple()
+    view = cv2_simple(
+        f"🧩 {system.get('system_name', 'System')} Subsystems",
+        "\n".join(lines),
+        color="5865F2",
+        footer=f"Total subsystems: {len(subsystems)}",
     )
-    embed.set_footer(text=f"Total subsystems: {len(subsystems)}")
-    await interaction.response.send_message(embed=embed, ephemeral=not show_to_others)
+    await interaction.response.send_message(view=view, ephemeral=not show_to_others)
 
 # -----------------------------
 # System tag
@@ -959,35 +965,27 @@ async def privacystatus(interaction: discord.Interaction):
             if len(sample_lines) < 12:
                 sample_lines.append(f"• {member.get('name', member_id)} (`{member_id}`) — {level} ({get_scope_label(scope_id)})")
 
-    embed = discord.Embed(
-        title="Privacy Status",
-        color=discord.Color.blurple(),
-        description=(
-            f"System privacy: **{get_system_privacy_level(system)}**\n"
-            +
-            (
-                f"Trusted users: **{len(get_external_settings(system).get('trusted_users', []))}** | "
-                f"Friends: **{len(get_external_settings(system).get('friend_users', []))}**"
-            )
-        ),
-    )
-    embed.add_field(
-        name="Alter Privacy Summary",
-        value=(
-            f"Private: **{counts.get('private', 0)}**\n"
-            f"Trusted: **{counts.get('trusted', 0)}**\n"
-            f"Friends: **{counts.get('friends', 0)}**\n"
-            f"Public: **{counts.get('public', 0)}**\n"
-            f"Total alters: **{total_members}**"
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Sample Alters",
-        value="\n".join(sample_lines) if sample_lines else "No alters found.",
-        inline=False,
-    )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    container = discord.ui.Container(accent_colour=discord.Colour.blurple())
+    container.add_item(discord.ui.TextDisplay(
+        f"### Privacy Status\n"
+        f"System privacy: **{get_system_privacy_level(system)}**\n"
+        f"Trusted users: **{len(get_external_settings(system).get('trusted_users', []))}** | "
+        f"Friends: **{len(get_external_settings(system).get('friend_users', []))}**"
+    ))
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    container.add_item(discord.ui.TextDisplay(
+        f"**Alter Privacy Summary**\n"
+        f"Private: **{counts.get('private', 0)}**\n"
+        f"Trusted: **{counts.get('trusted', 0)}**\n"
+        f"Friends: **{counts.get('friends', 0)}**\n"
+        f"Public: **{counts.get('public', 0)}**\n"
+        f"Total alters: **{total_members}**"
+    ))
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    container.add_item(discord.ui.TextDisplay(
+        f"**Sample Alters**\n" + ("\n".join(sample_lines) if sample_lines else "No alters found.")
+    ))
+    await interaction.response.send_message(view=cv2_view(container), ephemeral=True)
 
 # /viewsystemcard — Display the system profile card embed
 @tree.command(name="viewsystemcard", description="View your system profile card")
@@ -1006,39 +1004,8 @@ async def viewsystemcard(
         await interaction.response.send_message("You do not have permission to view this system card.", ephemeral=True)
         return
 
-    profile = get_system_profile(system)
-    try:
-        embed_color = int(str(profile.get("color", "00DE9B")).lstrip("#"), 16)
-    except (TypeError, ValueError):
-        embed_color = int("00DE9B", 16)
-
-    desc_raw = fit_box_drawing(profile.get("description") or "") or "No description set."
-
-    # Build metadata header + description as embed.description (4096 char limit).
-    # This keeps metadata at top and description below, all in one block.
-    mode_val = system.get("mode", "system").title()
-    pronouns_val = profile.get("collective_pronouns") or "Not set"
-    tag_val = get_system_proxy_tag(system) or "Not set"
-
-    header = f"**Mode:** {mode_val}  ·  **Pronouns:** {pronouns_val}  ·  **Tag:** {tag_val}"
-    full_desc = f"{header}\n\n{desc_raw}"
-
-    # Truncate if over Discord's 4096 limit
-    if len(full_desc) > 4096:
-        full_desc = full_desc[:4093] + "..."
-
-    embed = discord.Embed(
-        title=f"{system.get('system_name', 'Unnamed System')} - System Card",
-        description=full_desc,
-        color=embed_color
-    )
-
-    if profile.get("profile_pic"):
-        embed.set_thumbnail(url=profile["profile_pic"])
-    if profile.get("banner"):
-        embed.set_image(url=profile["banner"])
-
-    await interaction.response.send_message(embed=embed, ephemeral=not show_to_others)
+    container = build_system_card_cv2(system)
+    await interaction.response.send_message(view=cv2_view(container), ephemeral=not show_to_others)
 
 # /editsystemcard — Edit system name, pronouns, description, color, or images
 @tree.command(name="editsystemcard", description="Edit your system profile card details")
@@ -3252,13 +3219,15 @@ async def modestats(interaction: discord.Interaction, days: int = 30):
         pct = (secs / total_all * 100) if total_all else 0
         lines.append(f"\u2022 **{name.title()}** \u2014 {format_duration(secs)} ({pct:.0f}%)")
 
-    embed = discord.Embed(
-        title=f"Focus Mode Stats \u2014 Last {days} Day(s)",
-        description="\n".join(lines),
-        color=discord.Color.blurple(),
+    await interaction.response.send_message(
+        view=cv2_simple(
+            f"Focus Mode Stats \u2014 Last {days} Day(s)",
+            "\n".join(lines),
+            color="5865F2",
+            footer=f"Total tracked: {format_duration(total_all)}",
+        ),
+        ephemeral=True,
     )
-    embed.set_footer(text=f"Total tracked: {format_duration(total_all)}")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # /settimezone — Set the system timezone using an IANA name
 @tree.command(name="settimezone", description="Set your system timezone (IANA, e.g. America/New_York)")
@@ -3439,13 +3408,13 @@ async def currentfronts(interaction: discord.Interaction, subsystem_id: str = No
             status_str = f" \u2014 Status: {status_text}" if status_text else ""
             fronters.append(f"\u2022 {m['name']} ({scope_label}) \u2014 {duration}{status_str}{cofront_str}")
 
-    embed = discord.Embed(
-        title=title,
-        description="\n".join(fronters) if fronters else "No members are currently fronting.",
-        color=discord.Color.purple()
+    await interaction.response.send_message(
+        view=cv2_simple(
+            title,
+            "\n".join(fronters) if fronters else "No members are currently fronting.",
+            color="9B59B6",
+        )
     )
-
-    await interaction.response.send_message(embed=embed)
 
 # -----------------------------
 # Front history
@@ -3491,70 +3460,61 @@ async def fronthistory(interaction: discord.Interaction, subsystem_id: str = Non
     page_size = 10
     total_pages = (len(history_entries) - 1) // page_size + 1
 
-    def get_embed(page):
+    scope_label = get_scope_label(subsystem_id).capitalize()
 
+    def _build_history_container(page):
         start_index = page * page_size
         end_index = start_index + page_size
         chunk = history_entries[start_index:end_index]
 
         lines = []
-
         for entry in chunk:
-
             start_time = format_us(entry["start"])
-
             if entry["end"]:
                 end_time = format_us(entry["end"])
-                lines.append(
-                    f"**{entry['name']}** \u2014 {start_time} \u2192 {end_time}"
-                )
+                lines.append(f"**{entry['name']}** \u2014 {start_time} \u2192 {end_time}")
             else:
-                lines.append(
-                    f"**{entry['name']}** \u2014 {start_time} \u2192 *Currently fronting*"
-                )
+                lines.append(f"**{entry['name']}** \u2014 {start_time} \u2192 *Currently fronting*")
 
-        embed = discord.Embed(
-            title=f"Front History - {get_scope_label(subsystem_id).capitalize()}",
-            description="\n".join(lines),
-            color=discord.Color.blue()
-        )
+        container = discord.ui.Container(accent_colour=_cv2_color("3498DB"))
+        container.add_item(discord.ui.TextDisplay(f"### Front History - {scope_label}\n" + "\n".join(lines)))
+        container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+        container.add_item(discord.ui.TextDisplay(f"-# Page {page+1}/{total_pages}"))
+        return container
 
-        embed.set_footer(text=f"Page {page+1}/{total_pages}")
+    class _FHPrev(discord.ui.Button):
+        def __init__(self, paginator):
+            super().__init__(label="Previous", style=discord.ButtonStyle.secondary)
+            self.paginator = paginator
+        async def callback(self, interaction: discord.Interaction):
+            if self.paginator.page > 0:
+                self.paginator.page -= 1
+                self.paginator._rebuild()
+                await interaction.response.edit_message(view=self.paginator)
 
-        return embed
+    class _FHNext(discord.ui.Button):
+        def __init__(self, paginator):
+            super().__init__(label="Next", style=discord.ButtonStyle.secondary)
+            self.paginator = paginator
+        async def callback(self, interaction: discord.Interaction):
+            if self.paginator.page < total_pages - 1:
+                self.paginator.page += 1
+                self.paginator._rebuild()
+                await interaction.response.edit_message(view=self.paginator)
 
-    class HistoryView(discord.ui.View):
-
+    class HistoryView(discord.ui.LayoutView):
         def __init__(self):
             super().__init__(timeout=120)
             self.page = 0
+            self._rebuild()
 
-        @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
-        async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
-
-            if self.page > 0:
-                self.page -= 1
-                await interaction.response.edit_message(
-                    embed=get_embed(self.page),
-                    view=self
-                )
-
-        @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
-        async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-
-            if self.page < total_pages - 1:
-                self.page += 1
-                await interaction.response.edit_message(
-                    embed=get_embed(self.page),
-                    view=self
-                )
+        def _rebuild(self):
+            self.clear_items()
+            self.add_item(_build_history_container(self.page))
+            self.add_item(discord.ui.ActionRow(_FHPrev(self), _FHNext(self)))
 
     view = HistoryView()
-
-    await interaction.response.send_message(
-        embed=get_embed(0),
-        view=view
-    )
+    await interaction.response.send_message(view=view)
 # -----------------------------
 # Front duration statistics
 # -----------------------------
@@ -3588,8 +3548,9 @@ async def frontstats(interaction: discord.Interaction, subsystem_id: str = None)
     page_size = 10
     total_pages = (len(stats) - 1) // page_size + 1
 
-    def get_embed(page):
+    stats_scope_label = get_scope_label(subsystem_id).capitalize()
 
+    def _build_stats_container(page):
         start = page * page_size
         end = start + page_size
         chunk = stats[start:end]
@@ -3599,36 +3560,45 @@ async def frontstats(interaction: discord.Interaction, subsystem_id: str = None)
             pct = (seconds / grand_total * 100) if grand_total > 0 else 0
             lines.append(f"**{name}** \u2014 {format_duration(seconds)} ({pct:.1f}%)")
 
-        embed = discord.Embed(
-            title=f"Front Duration Statistics - {get_scope_label(subsystem_id).capitalize()}",
-            description="\n".join(lines),
-            color=discord.Color.orange()
-        )
+        container = discord.ui.Container(accent_colour=_cv2_color("E67E22"))
+        container.add_item(discord.ui.TextDisplay(f"### Front Duration Statistics - {stats_scope_label}\n" + "\n".join(lines)))
+        container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+        container.add_item(discord.ui.TextDisplay(f"-# Page {page+1}/{total_pages}"))
+        return container
 
-        embed.set_footer(text=f"Page {page+1}/{total_pages}")
+    class _FSPrev(discord.ui.Button):
+        def __init__(self, paginator):
+            super().__init__(label="Previous", style=discord.ButtonStyle.secondary)
+            self.paginator = paginator
+        async def callback(self, interaction: discord.Interaction):
+            if self.paginator.page > 0:
+                self.paginator.page -= 1
+                self.paginator._rebuild()
+                await interaction.response.edit_message(view=self.paginator)
 
-        return embed
+    class _FSNext(discord.ui.Button):
+        def __init__(self, paginator):
+            super().__init__(label="Next", style=discord.ButtonStyle.secondary)
+            self.paginator = paginator
+        async def callback(self, interaction: discord.Interaction):
+            if self.paginator.page < total_pages - 1:
+                self.paginator.page += 1
+                self.paginator._rebuild()
+                await interaction.response.edit_message(view=self.paginator)
 
-    class StatsView(discord.ui.View):
+    class StatsView(discord.ui.LayoutView):
         def __init__(self):
             super().__init__(timeout=120)
             self.page = 0
+            self._rebuild()
 
-        @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
-        async def previous(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if self.page > 0:
-                self.page -= 1
-                await interaction.response.edit_message(embed=get_embed(self.page), view=self)
-
-        @discord.ui.button(label="Next", style=discord.ButtonStyle.secondary)
-        async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if self.page < total_pages - 1:
-                self.page += 1
-                await interaction.response.edit_message(embed=get_embed(self.page), view=self)
+        def _rebuild(self):
+            self.clear_items()
+            self.add_item(_build_stats_container(self.page))
+            self.add_item(discord.ui.ActionRow(_FSPrev(self), _FSNext(self)))
 
     view = StatsView()
-
-    await interaction.response.send_message(embed=get_embed(0), view=view)
+    await interaction.response.send_message(view=view)
 
 # /switchpatterns — Analyze switch pairs, co-fronts, and time-of-day patterns
 @tree.command(name="switchpatterns", description="Show switch pair, co-front, and time-of-day fronting patterns")
@@ -3725,28 +3695,24 @@ async def switchpatterns(interaction: discord.Interaction):
         for name, bucket, count, total, pct in top_time_patterns
     ]
 
-    embed = discord.Embed(
-        title="Switch Patterns",
-        description=f"Based on recorded front history across your main system and subsystems (time buckets use {tz_label}).",
-        color=discord.Color.teal()
-    )
-    embed.add_field(
-        name="Most Common Switch Pairs",
-        value="\n".join(switch_lines) if switch_lines else "No switch pair data yet.",
-        inline=False
-    )
-    embed.add_field(
-        name="Most Common Co-Front Pairs",
-        value="\n".join(cofront_lines) if cofront_lines else "No co-front pair data yet.",
-        inline=False
-    )
-    embed.add_field(
-        name="Time-of-Day Patterns",
-        value="\n".join(time_lines) if time_lines else "No time-of-day pattern data yet.",
-        inline=False
-    )
+    sp_container = discord.ui.Container(accent_colour=_cv2_color("1ABC9C"))
+    sp_container.add_item(discord.ui.TextDisplay(
+        f"### Switch Patterns\nBased on recorded front history across your main system and subsystems (time buckets use {tz_label})."
+    ))
+    sp_container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    sp_container.add_item(discord.ui.TextDisplay(
+        "**Most Common Switch Pairs**\n" + ("\n".join(switch_lines) if switch_lines else "No switch pair data yet.")
+    ))
+    sp_container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    sp_container.add_item(discord.ui.TextDisplay(
+        "**Most Common Co-Front Pairs**\n" + ("\n".join(cofront_lines) if cofront_lines else "No co-front pair data yet.")
+    ))
+    sp_container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    sp_container.add_item(discord.ui.TextDisplay(
+        "**Time-of-Day Patterns**\n" + ("\n".join(time_lines) if time_lines else "No time-of-day pattern data yet.")
+    ))
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=cv2_view(sp_container))
 # -----------------------------
 # Member statistics
 # -----------------------------
@@ -3796,40 +3762,23 @@ async def memberstats(interaction: discord.Interaction, member_id: str, subsyste
             if not last_front or start > last_front:
                 last_front = start
 
-    try:
-        embed_color = int(str(member.get("color", "FFFFFF")).lstrip("#"), 16)
-    except (ValueError, TypeError):
-        embed_color = int("00DE9B", 16)
+    member_color_hex = str(member.get("color", "00DE9B")).lstrip("#")
 
-    embed = discord.Embed(
-        title=f"Member Stats \u2014 {member.get('name', 'Unknown')}",
-        color=embed_color
-    )
-
-    embed.add_field(
-        name="Front Time",
-        value=f"Total: {format_duration(total_front_seconds)}",
-        inline=False
-    )
-
-    embed.add_field(
-        name="Sessions",
-        value=(
-            f"Total Fronts: {sessions}\n"
-            f"Average Session: {format_duration(avg)}\n"
-            f"Longest Session: {format_duration(longest)}"
-        ),
-        inline=False
-    )
-
+    ms_container = discord.ui.Container(accent_colour=_cv2_color(member_color_hex))
+    ms_container.add_item(discord.ui.TextDisplay(f"### Member Stats \u2014 {member.get('name', 'Unknown')}"))
+    ms_container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    ms_container.add_item(discord.ui.TextDisplay(
+        f"**Front Time**\nTotal: {format_duration(total_front_seconds)}"
+    ))
+    ms_container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    ms_container.add_item(discord.ui.TextDisplay(
+        f"**Sessions**\nTotal Fronts: {sessions}\nAverage Session: {format_duration(avg)}\nLongest Session: {format_duration(longest)}"
+    ))
     if last_front:
-        embed.add_field(
-            name="Last Front",
-            value=format_us(last_front),
-            inline=False
-        )
+        ms_container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+        ms_container.add_item(discord.ui.TextDisplay(f"**Last Front**\n{format_us(last_front)}"))
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=cv2_view(ms_container))
 # -----------------------------
 # Member front history
 # -----------------------------
@@ -3880,13 +3829,10 @@ async def memberhistory(interaction: discord.Interaction, member_id: str, subsys
 
         lines.append(f"Start: {start_str}\nEnd: {end_str}\nDuration: {duration_str}{cofront_str}")
 
-    embed = discord.Embed(
-        title=f"{member['name']} Front History",
-        description="\n\n".join(lines),
-        color=discord.Color.blue()
-    )
+    mh_container = discord.ui.Container(accent_colour=_cv2_color("3498DB"))
+    mh_container.add_item(discord.ui.TextDisplay(f"### {member['name']} Front History\n" + "\n\n".join(lines)))
 
-    await interaction.followup.send(embed=embed)
+    await interaction.followup.send(view=cv2_view(mh_container))
 # -----------------------------
 # Browse members by tags interactively
 # -----------------------------
@@ -3909,9 +3855,9 @@ async def browsetags(interaction: discord.Interaction, subsystem_id: str = None)
     if not available_tags:
         await interaction.response.send_message("No tags exist yet.", ephemeral=True)
         return
-    embed = discord.Embed(title="🏷️ Tag Browser", description="Select one or more tags from the dropdown.", color=discord.Color.blue())
-    embed.set_footer(text=f"Total tags: {len(available_tags)}")
-    await interaction.response.send_message(embed=embed, view=TagMultiView(available_tags, members_dict))
+    await interaction.response.send_message(
+        view=TagMultiView(available_tags, members_dict),
+    )
 # -----------------------------
 # View member
 # -----------------------------
@@ -3940,7 +3886,7 @@ async def viewmember(
         await interaction.response.send_message("You do not have permission to view this member card.", ephemeral=True)
         return
 
-    await interaction.response.send_message(embed=build_member_profile_embed(member, system=system))
+    await interaction.response.send_message(view=cv2_view(build_member_profile_cv2(member, system=system)))
 
 # /random — View a random member from the system, optionally by privacy pool
 @tree.command(name="random", description="View a random member from your full system")
@@ -3992,7 +3938,7 @@ async def randommember(
     pool_label = "all visible" if selected_pool == "all" else selected_pool
     await interaction.response.send_message(
         content=f"Random {pool_label} member from {scope_label}:",
-        embed=build_member_profile_embed(member, system=system)
+        view=cv2_view(build_member_profile_cv2(member, system=system))
     )
 # -----------------------------
 # Edit member
@@ -4334,7 +4280,40 @@ async def members_list(
 
     page = 1  # start at page 1
 
-    class Paginator(discord.ui.View):
+    class _MemberPrevButton(discord.ui.Button):
+        def __init__(self, paginator):
+            super().__init__(label="Previous", style=discord.ButtonStyle.primary)
+            self.paginator = paginator
+        async def callback(self, interaction: discord.Interaction):
+            if self.paginator.current_page > 1:
+                self.paginator.current_page -= 1
+                self.paginator._rebuild()
+                await interaction.response.edit_message(view=self.paginator)
+
+    class _MemberNextButton(discord.ui.Button):
+        def __init__(self, paginator):
+            super().__init__(label="Next", style=discord.ButtonStyle.primary)
+            self.paginator = paginator
+        async def callback(self, interaction: discord.Interaction):
+            if self.paginator.current_page < self.paginator.total_pages:
+                self.paginator.current_page += 1
+                self.paginator._rebuild()
+                await interaction.response.edit_message(view=self.paginator)
+
+    class _MemberPageSelect(discord.ui.Select):
+        def __init__(self, paginator):
+            options = [
+                discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == paginator.current_page))
+                for i in range(1, paginator.total_pages + 1)
+            ]
+            super().__init__(placeholder="Jump to page...", min_values=1, max_values=1, options=options)
+            self.paginator = paginator
+        async def callback(self, interaction: discord.Interaction):
+            self.paginator.current_page = int(self.values[0])
+            self.paginator._rebuild()
+            await interaction.response.edit_message(view=self.paginator)
+
+    class Paginator(discord.ui.LayoutView):
         def __init__(self, member_rows, scoped_members_lookup, title_scope, sort_mode, members_per_page):
             super().__init__(timeout=60)
             self.member_rows = member_rows
@@ -4344,80 +4323,41 @@ async def members_list(
             self.members_per_page = members_per_page
             self.total_pages = (len(self.member_rows) - 1) // self.members_per_page + 1 if self.member_rows else 1
             self.current_page = 1
-            self.add_item(self.PageSelect(self))
+            self._rebuild()
 
-        def get_embeds(self, page):
+        def get_containers(self, page):
             start_idx = (page - 1) * self.members_per_page
             end_idx = start_idx + self.members_per_page
             page_members = self.member_rows[start_idx:end_idx]
 
-            embeds = []
-            for scope_id, member_id, m in page_members[:5]:  # Discord max 10 embeds, but keep to 5 for safety
-                embed = build_member_profile_embed(m, system=self.scoped_members_lookup.get(scope_id))
-                embeds.append(embed)
-            if not embeds:
-                embed = discord.Embed(
-                    title=f"Members List - {self.title_scope} (Page {page}/{self.total_pages})",
-                    description="No members found.",
-                    color=0x00FF00
-                )
-                embed.set_footer(text=f"Sort: {'Alphabetical' if self.sort_mode == 'alphabetical' else 'ID'}")
-                embeds = [embed]
-            return embeds
+            containers = []
+            for scope_id, member_id, m in page_members[:5]:
+                container = build_member_profile_cv2(m, system=self.scoped_members_lookup.get(scope_id))
+                containers.append(container)
+            if not containers:
+                empty = discord.ui.Container(accent_colour=_cv2_color("00FF00"))
+                empty.add_item(discord.ui.TextDisplay(
+                    f"### Members List - {self.title_scope} (Page {page}/{self.total_pages})\nNo members found."
+                ))
+                empty.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+                empty.add_item(discord.ui.TextDisplay(
+                    f"-# Sort: {'Alphabetical' if self.sort_mode == 'alphabetical' else 'ID'}"
+                ))
+                containers = [empty]
+            return containers
 
-        class PageSelect(discord.ui.Select):
-            def __init__(self, paginator):
-                self.paginator = paginator
-                options = [
-                    discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == paginator.current_page))
-                    for i in range(1, paginator.total_pages + 1)
-                ]
-                super().__init__(
-                    placeholder="Jump to page...",
-                    min_values=1,
-                    max_values=1,
-                    options=options
-                )
-
-            async def callback(self, interaction: discord.Interaction):
-                selected_page = int(self.values[0])
-                self.paginator.current_page = selected_page
-                # Update select options to reflect new default
-                self.options = [
-                    discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == selected_page))
-                    for i in range(1, self.paginator.total_pages + 1)
-                ]
-                await interaction.response.edit_message(embed=self.paginator.get_embed(selected_page), view=self.paginator)
-
-        @discord.ui.button(label="Previous", style=discord.ButtonStyle.primary)
-        async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if self.current_page > 1:
-                self.current_page -= 1
-                # Update select options to reflect new default
-                for item in self.children:
-                    if isinstance(item, self.PageSelect):
-                        item.options = [
-                            discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == self.current_page))
-                            for i in range(1, self.total_pages + 1)
-                        ]
-                await interaction.response.edit_message(embed=self.get_embed(self.current_page), view=self)
-
-        @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
-        async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-            if self.current_page < self.total_pages:
-                self.current_page += 1
-                # Update select options to reflect new default
-                for item in self.children:
-                    if isinstance(item, self.PageSelect):
-                        item.options = [
-                            discord.SelectOption(label=f"Page {i}", value=str(i), default=(i == self.current_page))
-                            for i in range(1, self.total_pages + 1)
-                        ]
-                await interaction.response.edit_message(embed=self.get_embed(self.current_page), view=self)
+        def _rebuild(self):
+            self.clear_items()
+            for c in self.get_containers(self.current_page):
+                self.add_item(c)
+            self.add_item(discord.ui.ActionRow(
+                _MemberPrevButton(self), _MemberNextButton(self)
+            ))
+            if self.total_pages > 1:
+                self.add_item(discord.ui.ActionRow(_MemberPageSelect(self)))
 
     paginator = Paginator(member_rows, scoped_members_lookup, title_scope, sort_mode, members_per_page)
-    embeds = paginator.get_embeds(paginator.current_page)
-    await interaction.response.send_message(embeds=embeds, view=paginator)
+    await interaction.response.send_message(view=paginator)
 # /toggleuntracked — Exclude or include a member in the total count
 @tree.command(name="toggleuntracked", description="Toggle the 'untracked' status for a member (exclude/include in total count)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
@@ -4650,13 +4590,15 @@ async def listgroups_cmd(interaction: discord.Interaction, show_to_others: bool 
         path = get_group_path_text(groups, gid)
         lines.append(f"👥 **{groups[gid]['name']}** (`{gid}`): {path}")
 
-    embed = discord.Embed(
-        title="👥 Group List",
-        description="\n".join(lines) if lines else "No groups found.",
-        color=discord.Color.dark_teal(),
+    await interaction.response.send_message(
+        view=cv2_simple(
+            "\U0001f465 Group List",
+            "\n".join(lines) if lines else "No groups found.",
+            color="11806A",
+            footer=f"Total groups: {len(groups)}",
+        ),
+        ephemeral=not show_to_others,
     )
-    embed.set_footer(text=f"Total groups: {len(groups)}")
-    await interaction.response.send_message(embed=embed, ephemeral=not show_to_others)
 
 
 # /grouporder — Set group display order via comma-separated IDs
@@ -4721,7 +4663,7 @@ async def grouporderui(interaction: discord.Interaction):
         return
 
     view = GroupOrderView(interaction.user.id, system)
-    await interaction.response.send_message(embed=view.current_embed(), view=view, ephemeral=True)
+    await interaction.response.send_message(view=view, ephemeral=True)
 
 
 # /addmembergroup — Assign a group to a member
@@ -4809,12 +4751,14 @@ async def membergroups(interaction: discord.Interaction, member_id: str, subsyst
         return
 
     member = members_dict[member_id]
-    embed = discord.Embed(
-        title=f"Groups - {member.get('name', member_id)}",
-        description=format_member_group_lines(system, member),
-        color=discord.Color.teal(),
+    await interaction.response.send_message(
+        view=cv2_simple(
+            f"Groups - {member.get('name', member_id)}",
+            format_member_group_lines(system, member),
+            color="1ABC9C",
+        ),
+        ephemeral=True,
     )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # -----------------------------
 # Search Members
@@ -4856,20 +4800,17 @@ async def searchmember(interaction: discord.Interaction, subsystem_id: str = Non
 
     if len(results) == 1:
         member = results[0]
-        embed = build_member_profile_embed(member, system=system)
-        await interaction.response.send_message(embed=embed)
+        container = build_member_profile_cv2(member, system=system)
+        await interaction.response.send_message(view=cv2_view(container))
     else:
-        embeds = []
+        containers = []
         for m in results[:5]:
-            embeds.append(build_member_profile_embed(m, system=system))
-        if not embeds:
-            embed = discord.Embed(
-                title=f"Search Results (0 found)",
-                description="No members found.",
-                color=discord.Color.blue()
-            )
-            embeds = [embed]
-        await interaction.response.send_message(embeds=embeds)
+            containers.append(build_member_profile_cv2(m, system=system))
+        if not containers:
+            empty_c = discord.ui.Container(accent_colour=_cv2_color("3498DB"))
+            empty_c.add_item(discord.ui.TextDisplay("### Search Results (0 found)\nNo members found."))
+            containers = [empty_c]
+        await interaction.response.send_message(view=cv2_view(*containers))
 
 # -----------------------------
 # Tag management
@@ -4938,13 +4879,7 @@ async def listtags(interaction: discord.Interaction):
 
     tag_lines = "\n".join(sections)
 
-    embed = discord.Embed(
-        title="System Tags",
-        description=tag_lines,
-        color=discord.Color.green()
-    )
-
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(view=cv2_simple("System Tags", tag_lines, color="2ECC71"))
 
 
 # /clearfront — End all current fronting sessions in a scope

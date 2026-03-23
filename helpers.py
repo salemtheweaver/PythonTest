@@ -54,6 +54,61 @@ members = {}
 
 
 # ---------------------------------------------------------------------------
+# Components V2 (CV2) utility helpers
+# ---------------------------------------------------------------------------
+
+def _cv2_color(hex_str):
+    """Parse a hex color string into a discord.Colour, with fallback."""
+    try:
+        return discord.Colour(int(str(hex_str or "00DE9B").lstrip("#"), 16))
+    except (TypeError, ValueError):
+        return discord.Colour(int("00DE9B", 16))
+
+
+def cv2_view(*items):
+    """Create a LayoutView from one or more top-level CV2 items (Container, ActionRow, etc.)."""
+    view = discord.ui.LayoutView()
+    for item in items:
+        view.add_item(item)
+    return view
+
+
+def cv2_container(*children, color=None):
+    """Create a Container with optional accent colour and child items."""
+    kwargs = {}
+    if color is not None:
+        kwargs["accent_colour"] = _cv2_color(color) if isinstance(color, str) else color
+    container = discord.ui.Container(**kwargs)
+    for child in children:
+        container.add_item(child)
+    return container
+
+
+def cv2_simple(title, description, color=None, footer=None):
+    """Build a LayoutView for a simple info/status message (replaces simple Embeds).
+
+    Returns a LayoutView ready to pass as view= to send_message.
+    """
+    parts = []
+    if title:
+        parts.append(f"### {title}")
+    if description:
+        parts.append(description)
+    text = "\n".join(parts)
+
+    children = [discord.ui.TextDisplay(text)]
+    if footer:
+        children.append(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+        children.append(discord.ui.TextDisplay(f"-# {footer}"))
+
+    accent = _cv2_color(color) if color else None
+    container = discord.ui.Container(accent_colour=accent) if accent else discord.ui.Container()
+    for c in children:
+        container.add_item(c)
+    return cv2_view(container)
+
+
+# ---------------------------------------------------------------------------
 # Moderation helpers
 # ---------------------------------------------------------------------------
 
@@ -1380,6 +1435,135 @@ def build_member_profile_embed(member, system=None):
     return embed
 
 
+def build_member_profile_cv2(member, system=None):
+    """Build a CV2 Container for a member profile card."""
+    accent = _cv2_color(member.get("color"))
+    container = discord.ui.Container(accent_colour=accent)
+
+    def _truncate(text, limit):
+        text = str(text or "").strip()
+        return text if len(text) <= limit else text[:limit - 3].rstrip() + "..."
+
+    member_name = member["name"]
+    display_name = str(member.get("display_name") or "").strip() or None
+    profile_pic_url = normalize_embed_image_url(member.get("profile_pic"))
+
+    # --- Header: name (system) with optional thumbnail ---
+    author_name = member_name
+    if system:
+        system_name = system.get("system_name") or system.get("name")
+        if system_name:
+            author_name = f"{member_name} ({system_name})"
+
+    header_text = f"### {author_name}"
+    if profile_pic_url:
+        thumb = discord.ui.Thumbnail(profile_pic_url)
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(header_text),
+            accessory=thumb,
+        ))
+    else:
+        container.add_item(discord.ui.TextDisplay(header_text))
+
+    # --- Info fields ---
+    info_lines = []
+    if display_name and display_name != member_name:
+        info_lines.append(f"🪪 **Display Name:** {_truncate(display_name, 250)}")
+    pronouns = member.get("pronouns")
+    if pronouns:
+        info_lines.append(f"🌈 **Pronouns:** {_truncate(pronouns, 250)}")
+    birthday = member.get("birthday")
+    if birthday:
+        try:
+            parts = str(birthday).strip().split("-")
+            if len(parts) == 3:
+                birthday_display = f"{parts[1]}/{parts[2]}"
+            elif len(parts) == 2:
+                birthday_display = f"{parts[0]}/{parts[1]}"
+            else:
+                birthday_display = birthday
+        except Exception:
+            birthday_display = birthday
+        info_lines.append(f"🎂 **Birthday:** {birthday_display}")
+    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
+    if tags:
+        info_lines.append(f"🏷️ **Tags:** {_truncate(tags, 250)}")
+    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
+    if playlist_text:
+        info_lines.append(f"🎵 **Playlist:** {playlist_text}")
+    color_val = member.get("color")
+    if color_val:
+        info_lines.append(f"🎨 **Color:** #{str(color_val).lstrip('#')}")
+
+    if info_lines:
+        container.add_item(discord.ui.TextDisplay("\n".join(info_lines)))
+
+    # --- Fronting status ---
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    current_front = member.get("current_front")
+    if current_front:
+        try:
+            start_dt = datetime.fromisoformat(current_front["start"])
+            duration = format_duration((datetime.now(timezone.utc) - start_dt).total_seconds())
+            cofront_ids = current_front.get("cofronts", [])
+            cofront_text = ""
+            if cofront_ids and system:
+                cofront_names = []
+                for scope_id, members_dict in iter_system_member_dicts(system):
+                    for cofront_id in cofront_ids:
+                        if cofront_id in members_dict:
+                            cofront_names.append(members_dict[cofront_id].get("name", cofront_id))
+                if cofront_names:
+                    cofront_text = f" (with {', '.join(cofront_names)})"
+            container.add_item(discord.ui.TextDisplay(f"🟢 **Currently Fronting:** Yes, for {duration}{cofront_text}"))
+        except (ValueError, KeyError):
+            container.add_item(discord.ui.TextDisplay("🟢 **Currently Fronting:** Yes"))
+    else:
+        container.add_item(discord.ui.TextDisplay("⚪ **Currently Fronting:** No"))
+
+    total_front_seconds = calculate_front_duration(member)
+    if total_front_seconds > 0:
+        container.add_item(discord.ui.TextDisplay(f"⏱️ **Total Front Time:** {format_duration(total_front_seconds)}"))
+
+    # --- Proxy tags ---
+    proxy_text = render_member_proxy_result(member)
+    if proxy_text and proxy_text != "Not set":
+        container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+        container.add_item(discord.ui.TextDisplay(f"🔗 **Proxy Tags:** `{_truncate(proxy_text, 1000)}`"))
+
+    # --- Groups ---
+    if system is not None:
+        groups_text = format_member_group_lines(system, member)
+        if groups_text and groups_text != "None":
+            container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+            container.add_item(discord.ui.TextDisplay(f"👥 **Groups:** {_truncate(groups_text, 1024)}"))
+
+    # --- Description ---
+    bio_text = str(member.get("description") or "").strip()
+    if bio_text:
+        bio_text = fit_box_drawing(bio_text)
+        container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+        container.add_item(discord.ui.TextDisplay(f"📝 **Description**\n{_truncate(bio_text, 1024)}"))
+
+    # --- Banner ---
+    banner_url = normalize_embed_image_url(member.get("banner"))
+    if banner_url:
+        container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(banner_url)))
+
+    # --- Footer ---
+    footer_parts = [f"Member ID: {member['id']}"]
+    created_iso = member.get("created_at")
+    if created_iso:
+        try:
+            created_dt = datetime.fromisoformat(created_iso)
+            footer_parts.append(f"Created on {created_dt.strftime('%B %d, %Y')}")
+        except Exception:
+            pass
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    container.add_item(discord.ui.TextDisplay(f"-# {' | '.join(footer_parts)}"))
+
+    return container
+
 
 def build_subsystem_card_embed(subsystem_data, subsystem_id, system):
     """Build a subsystem profile embed."""
@@ -1413,6 +1597,100 @@ def build_subsystem_card_embed(subsystem_data, subsystem_id, system):
         embed.set_image(url=subsystem_data["banner"])
 
     return embed
+
+
+def build_subsystem_card_cv2(subsystem_data, subsystem_id, system):
+    """Build a CV2 Container for a subsystem card."""
+    accent = _cv2_color(subsystem_data.get("color"))
+    container = discord.ui.Container(accent_colour=accent)
+
+    subsystem_name = subsystem_data.get("subsystem_name", "Unnamed Subsystem")
+    desc = fit_box_drawing(subsystem_data.get("description", "")) or "No description set."
+    profile_pic = subsystem_data.get("profile_pic")
+
+    header = f"### {subsystem_name} - Subsystem Card"
+    if profile_pic:
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(header),
+            accessory=discord.ui.Thumbnail(profile_pic),
+        ))
+    else:
+        container.add_item(discord.ui.TextDisplay(header))
+
+    member_count = len(subsystem_data.get("members", {}))
+    info_lines = [f"🆔 **Subsystem ID:** `{subsystem_id}`", f"👥 **Members:** {member_count}"]
+    if system:
+        info_lines.append(f"🏠 **Parent System:** {system.get('system_name', 'Unnamed System')}")
+    container.add_item(discord.ui.TextDisplay("\n".join(info_lines)))
+
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    container.add_item(discord.ui.TextDisplay(f"📝 **Description**\n{desc}"))
+
+    banner = subsystem_data.get("banner")
+    if banner:
+        container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(banner)))
+
+    return container
+
+
+def build_system_card_cv2(system):
+    """Build a CV2 Container for a system profile card."""
+    profile = get_system_profile(system)
+    accent = _cv2_color(profile.get("color"))
+    container = discord.ui.Container(accent_colour=accent)
+
+    system_name = system.get("system_name", "Unnamed System")
+    profile_pic = profile.get("profile_pic")
+    header = f"### {system_name} - System Card"
+    if profile_pic:
+        container.add_item(discord.ui.Section(
+            discord.ui.TextDisplay(header),
+            accessory=discord.ui.Thumbnail(profile_pic),
+        ))
+    else:
+        container.add_item(discord.ui.TextDisplay(header))
+
+    mode_val = system.get("mode", "system").title()
+    pronouns_val = profile.get("collective_pronouns") or "Not set"
+    tag_val = get_system_proxy_tag(system) or "Not set"
+    container.add_item(discord.ui.TextDisplay(
+        f"**Mode:** {mode_val}  ·  **Pronouns:** {pronouns_val}  ·  **Tag:** {tag_val}"
+    ))
+
+    desc_raw = fit_box_drawing(profile.get("description") or "") or "No description set."
+    if len(desc_raw) > 4000:
+        desc_raw = desc_raw[:3997] + "..."
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    container.add_item(discord.ui.TextDisplay(desc_raw))
+
+    banner = profile.get("banner")
+    if banner:
+        container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(banner)))
+
+    return container
+
+
+def build_group_order_cv2(system, order, focus_index):
+    """Build a CV2 Container for the group order editor."""
+    settings = get_group_settings(system)
+    groups = settings.get("groups", {})
+
+    lines = []
+    for idx, gid in enumerate(order):
+        marker = "▸" if idx == focus_index else " "
+        path = get_group_path_text(groups, gid)
+        lines.append(f"{marker} {idx + 1}. `{gid}` - {path}")
+
+    description = "\n".join(lines) if lines else "No groups found."
+    container = discord.ui.Container(accent_colour=discord.Colour.dark_teal())
+    container.add_item(discord.ui.TextDisplay(f"### Group Order Editor\n{description}"))
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+    container.add_item(discord.ui.TextDisplay("Use Focus Up/Down to select a group, Move Up/Down to reorder, then Save."))
+    if order:
+        focus_gid = order[focus_index]
+        container.add_item(discord.ui.TextDisplay(f"-# Focused: {focus_gid} ({focus_index + 1}/{len(order)})"))
+
+    return container
 
 
 # ---------------------------------------------------------------------------
@@ -2377,11 +2655,17 @@ async def send_proxy_origin_dm(reactor_user, audit_entry):
     # Show the member card when the viewer is allowed by member privacy rules.
     if system and member and can_view_member_data(system, member, reactor_user.id):
         try:
-            embed = build_member_profile_embed(member, system=system)
-            await reactor_user.send("\n".join(lines), embed=embed)
+            container = build_member_profile_cv2(member, system=system)
+            view = cv2_view(
+                discord.ui.Container(
+                    discord.ui.TextDisplay("\n".join(lines)),
+                ),
+                container,
+            )
+            await reactor_user.send(view=view)
             return
         except Exception:
-            # Fall back to text-only DM if embed rendering/sending fails.
+            # Fall back to text-only DM if CV2 rendering/sending fails.
             pass
 
     await reactor_user.send("\n".join(lines))
