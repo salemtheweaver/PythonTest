@@ -707,13 +707,14 @@ async def listsubsystems(
     for sub_id, sub_data in sorted(subsystems.items()):
         sub_name = sub_data.get("subsystem_name", "Unnamed Subsystem")
         member_count = len(sub_data.get("members", {}))
-        lines.append(f"ID `{sub_id}` - {sub_name} ({member_count} members)")
+        lines.append(f"🧩 **{sub_name}** (`{sub_id}`) — {member_count} members")
 
     embed = discord.Embed(
-        title=f"{system.get('system_name', 'System')} Subsystems",
+        title=f"🧩 {system.get('system_name', 'System')} Subsystems",
         description="\n".join(lines),
         color=discord.Color.blurple()
     )
+    embed.set_footer(text=f"Total subsystems: {len(subsystems)}")
     await interaction.response.send_message(embed=embed, ephemeral=not show_to_others)
 
 # -----------------------------
@@ -3908,7 +3909,8 @@ async def browsetags(interaction: discord.Interaction, subsystem_id: str = None)
     if not available_tags:
         await interaction.response.send_message("No tags exist yet.", ephemeral=True)
         return
-    embed = discord.Embed(title="Tag Browser", description="Select one or more tags from the dropdown.", color=discord.Color.blue())
+    embed = discord.Embed(title="🏷️ Tag Browser", description="Select one or more tags from the dropdown.", color=discord.Color.blue())
+    embed.set_footer(text=f"Total tags: {len(available_tags)}")
     await interaction.response.send_message(embed=embed, view=TagMultiView(available_tags, members_dict))
 # -----------------------------
 # View member
@@ -4344,33 +4346,24 @@ async def members_list(
             self.current_page = 1
             self.add_item(self.PageSelect(self))
 
-        def get_embed(self, page):
+        def get_embeds(self, page):
             start_idx = (page - 1) * self.members_per_page
             end_idx = start_idx + self.members_per_page
             page_members = self.member_rows[start_idx:end_idx]
 
-            total_count = len(self.member_rows)
-            desc_lines = [f"**Alter Count: {total_count}**"]
-            for scope_id, member_id, m in page_members:
-                current_front = m.get("current_front")
-                fronting = "Yes" if current_front else "No"
-                duration = format_duration(calculate_front_duration(m))
-                scoped_members = self.scoped_members_lookup.get(scope_id, {})
-                cofront_ids = current_front.get("cofronts", []) if current_front else []
-                cofront_names = [scoped_members.get(co_id, {}).get("name", str(co_id)) for co_id in cofront_ids]
-                co_fronts = ", ".join(cofront_names) if cofront_names else "None"
-                scope_label = get_scope_label(scope_id)
-                desc_lines.append(
-                    f"**{m['name']}** (ID `{member_id}`) | Scope: {scope_label} | Fronting: {fronting} | Co-fronts: {co_fronts} | Total Front Time: {duration}"
+            embeds = []
+            for scope_id, member_id, m in page_members[:5]:  # Discord max 10 embeds, but keep to 5 for safety
+                embed = build_member_profile_embed(m, system=self.scoped_members_lookup.get(scope_id))
+                embeds.append(embed)
+            if not embeds:
+                embed = discord.Embed(
+                    title=f"Members List - {self.title_scope} (Page {page}/{self.total_pages})",
+                    description="No members found.",
+                    color=0x00FF00
                 )
-
-            embed = discord.Embed(
-                title=f"Members List - {self.title_scope} (Page {page}/{self.total_pages})",
-                description="\n".join(desc_lines) or "No members found.",
-                color=0x00FF00
-            )
-            embed.set_footer(text=f"Sort: {'Alphabetical' if self.sort_mode == 'alphabetical' else 'ID'}")
-            return embed
+                embed.set_footer(text=f"Sort: {'Alphabetical' if self.sort_mode == 'alphabetical' else 'ID'}")
+                embeds = [embed]
+            return embeds
 
         class PageSelect(discord.ui.Select):
             def __init__(self, paginator):
@@ -4423,7 +4416,8 @@ async def members_list(
                 await interaction.response.edit_message(embed=self.get_embed(self.current_page), view=self)
 
     paginator = Paginator(member_rows, scoped_members_lookup, title_scope, sort_mode, members_per_page)
-    await interaction.response.send_message(embed=paginator.get_embed(paginator.current_page), view=paginator)
+    embeds = paginator.get_embeds(paginator.current_page)
+    await interaction.response.send_message(embeds=embeds, view=paginator)
 # /toggleuntracked — Exclude or include a member in the total count
 @tree.command(name="toggleuntracked", description="Toggle the 'untracked' status for a member (exclude/include in total count)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
@@ -4654,13 +4648,14 @@ async def listgroups_cmd(interaction: discord.Interaction, show_to_others: bool 
         if gid not in groups:
             continue
         path = get_group_path_text(groups, gid)
-        lines.append(f"- `{gid}`: {path}")
+        lines.append(f"👥 **{groups[gid]['name']}** (`{gid}`): {path}")
 
     embed = discord.Embed(
-        title="Group List",
+        title="👥 Group List",
         description="\n".join(lines) if lines else "No groups found.",
         color=discord.Color.dark_teal(),
     )
+    embed.set_footer(text=f"Total groups: {len(groups)}")
     await interaction.response.send_message(embed=embed, ephemeral=not show_to_others)
 
 
@@ -4861,42 +4856,20 @@ async def searchmember(interaction: discord.Interaction, subsystem_id: str = Non
 
     if len(results) == 1:
         member = results[0]
-        fronting = "Yes" if member.get("current_front") else "No"
-        duration = format_duration(calculate_front_duration(member))
-        co_fronts = ", ".join(member.get("co_fronts", [])) if member.get("co_fronts") else "None"
-
-        embed = discord.Embed(
-            title=member["name"],
-            description=member.get("description", "No description."),
-            color=int(member.get("color", "FFFFFF"), 16)
-        )
-
-        embed.add_field(name="Currently Fronting", value=fronting, inline=True)
-        embed.add_field(name="Co-fronts", value=co_fronts, inline=True)
-        embed.add_field(name="Total Front Time", value=duration, inline=False)
-
-        tags = ", ".join(member.get("tags", [])) if member.get("tags") else "None"
-        embed.add_field(name="Tags", value=tags, inline=False)
-        embed.add_field(name="Groups", value=format_member_group_lines(system, member), inline=False)
-
-        if member.get("profile_pic"):
-            embed.set_thumbnail(url=member["profile_pic"])
-        if member.get("banner"):
-            embed.set_image(url=member.get("banner"))
-
+        embed = build_member_profile_embed(member, system=system)
         await interaction.response.send_message(embed=embed)
     else:
-        lines = []
-        for m in results:
-            member_tags = ", ".join(m.get("tags", [])) or "None"
-            lines.append(f"**{m['name']}** \u2014 ID `{m['id']}` \u2014 Tags: {member_tags}")
-
-        embed = discord.Embed(
-            title=f"Search Results ({len(results)} found)",
-            description="\n".join(lines),
-            color=discord.Color.blue()
-        )
-        await interaction.response.send_message(embed=embed)
+        embeds = []
+        for m in results[:5]:
+            embeds.append(build_member_profile_embed(m, system=system))
+        if not embeds:
+            embed = discord.Embed(
+                title=f"Search Results (0 found)",
+                description="No members found.",
+                color=discord.Color.blue()
+            )
+            embeds = [embed]
+        await interaction.response.send_message(embeds=embeds)
 
 # -----------------------------
 # Tag management
