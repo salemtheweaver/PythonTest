@@ -1264,15 +1264,13 @@ def is_ephemeral_discord_attachment_url(value):
 
 import re
 
-_DECORATIVE_CHARS = set("─━┄┅┈┉╌╍═┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬╭╮╯╰│┃║╎╏┆┇┊┋˘˙·•°¯_~˜∼≈⌇¸ ")
-_MAX_DECOR_RUN = 8  # max repeated decorative chars before shortening
-
-# Pattern: 4+ consecutive identical characters (catches ˘˘˘˘˘˘, ────, etc.)
+# --- Decorative-run shortener for mobile-friendly descriptions ---
+_MAX_DECOR_RUN = 8
 _REPEATED_CHAR_RE = re.compile(r'(.)\1{3,}')
 
 
 def fit_box_drawing(text):
-    """Shorten decorative repeated-character runs so they fit in mobile embeds."""
+    """Shorten runs of repeated decorative characters so descriptions fit on mobile."""
     if not text:
         return text
     out = []
@@ -1281,13 +1279,11 @@ def fit_box_drawing(text):
         if not stripped:
             out.append("")
             continue
-        # Shorten any run of 4+ repeated chars (decorative lines/separators)
         stripped = _REPEATED_CHAR_RE.sub(
             lambda m: m.group(0)[0] * min(len(m.group(0)), _MAX_DECOR_RUN),
             stripped,
         )
         out.append(stripped)
-    # Collapse runs of 3+ blank lines to 2, trim leading/trailing blanks
     result = '\n'.join(out).strip('\n')
     while '\n\n\n' in result:
         result = result.replace('\n\n\n', '\n\n')
@@ -1411,9 +1407,8 @@ def build_member_profile_embed(member, system=None):
             )
 
     # --- Section 4: Description/bio ---
-    bio_text = str(member.get("description") or "").strip()
+    bio_text = fit_box_drawing(str(member.get("description") or "").strip())
     if bio_text:
-        bio_text = fit_box_drawing(bio_text)
         embed.add_field(
             name="📝 Description",
             value=_truncate(bio_text, 1024),
@@ -1539,9 +1534,8 @@ def build_member_profile_cv2(member, system=None):
             container.add_item(discord.ui.TextDisplay(f"👥 **Groups:** {_truncate(groups_text, 1024)}"))
 
     # --- Description ---
-    bio_text = str(member.get("description") or "").strip()
+    bio_text = fit_box_drawing(str(member.get("description") or "").strip())
     if bio_text:
-        bio_text = fit_box_drawing(bio_text)
         container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
         container.add_item(discord.ui.TextDisplay(f"📝 **Description**\n{_truncate(bio_text, 1024)}"))
 

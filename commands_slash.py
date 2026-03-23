@@ -47,7 +47,6 @@ from helpers import (
     end_focus_mode,
     calc_mode_stats,
     normalize_hex,
-    fit_box_drawing,
     build_member_profile_cv2,
     build_subsystem_card_cv2,
     build_system_card_cv2,
@@ -3886,7 +3885,8 @@ async def viewmember(
         await interaction.response.send_message("You do not have permission to view this member card.", ephemeral=True)
         return
 
-    await interaction.response.send_message(view=cv2_view(build_member_profile_cv2(member, system=system)))
+    await interaction.response.defer()
+    await interaction.followup.send(view=cv2_view(build_member_profile_cv2(member, system=system)))
 
 # /random — View a random member from the system, optionally by privacy pool
 @tree.command(name="random", description="View a random member from your full system")
@@ -3936,7 +3936,8 @@ async def randommember(
     scope_id, member = random.choice(candidates)
     scope_label = get_scope_label(scope_id)
     pool_label = "all visible" if selected_pool == "all" else selected_pool
-    await interaction.response.send_message(
+    await interaction.response.defer()
+    await interaction.followup.send(
         content=f"Random {pool_label} member from {scope_label}:",
         view=cv2_view(build_member_profile_cv2(member, system=system))
     )
@@ -4356,8 +4357,9 @@ async def members_list(
             if self.total_pages > 1:
                 self.add_item(discord.ui.ActionRow(_MemberPageSelect(self)))
 
+    await interaction.response.defer()
     paginator = Paginator(member_rows, scoped_members_lookup, title_scope, sort_mode, members_per_page)
-    await interaction.response.send_message(view=paginator)
+    await interaction.followup.send(view=paginator)
 # /toggleuntracked — Exclude or include a member in the total count
 @tree.command(name="toggleuntracked", description="Toggle the 'untracked' status for a member (exclude/include in total count)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
@@ -4798,10 +4800,11 @@ async def searchmember(interaction: discord.Interaction, subsystem_id: str = Non
         await interaction.response.send_message("No members found.", ephemeral=True)
         return
 
+    await interaction.response.defer()
     if len(results) == 1:
         member = results[0]
         container = build_member_profile_cv2(member, system=system)
-        await interaction.response.send_message(view=cv2_view(container))
+        await interaction.followup.send(view=cv2_view(container))
     else:
         containers = []
         for m in results[:5]:
@@ -4810,7 +4813,7 @@ async def searchmember(interaction: discord.Interaction, subsystem_id: str = Non
             empty_c = discord.ui.Container(accent_colour=_cv2_color("3498DB"))
             empty_c.add_item(discord.ui.TextDisplay("### Search Results (0 found)\nNo members found."))
             containers = [empty_c]
-        await interaction.response.send_message(view=cv2_view(*containers))
+        await interaction.followup.send(view=cv2_view(*containers))
 
 # -----------------------------
 # Tag management
