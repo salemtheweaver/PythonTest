@@ -1320,33 +1320,24 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
     total_pages = (len(member_rows) - 1) // members_per_page + 1 if member_rows else 1
     start_page = max(1, min(page, total_pages))
 
-    def get_embed(page_num):
+    def get_embeds(page_num):
         start_idx = (page_num - 1) * members_per_page
         end_idx = start_idx + members_per_page
         page_members = member_rows[start_idx:end_idx]
 
-        total_count = len(member_rows)
-        desc_lines = [f"**Alter Count: {total_count}**"]
-        for scope_id, member_id, member in page_members:
-            current_front = member.get("current_front")
-            fronting = "Yes" if current_front else "No"
-            duration = format_duration(calculate_front_duration(member))
-            scoped_members = scoped_members_lookup.get(scope_id, {})
-            cofront_ids = current_front.get("cofronts", []) if current_front else []
-            cofront_names = [scoped_members.get(co_id, {}).get("name", str(co_id)) for co_id in cofront_ids]
-            co_fronts = ", ".join(cofront_names) if cofront_names else "None"
-            scope_label = get_scope_label(scope_id)
-            desc_lines.append(
-                f"**{member['name']}** (ID `{member_id}`) | Scope: {scope_label} | Fronting: {fronting} | Co-fronts: {co_fronts} | Total Front Time: {duration}"
+        embeds = []
+        for scope_id, member_id, member in page_members[:5]:  # Discord max 10 embeds, keep to 5 for safety
+            embed = build_member_profile_embed(member, system=scoped_members_lookup.get(scope_id, system))
+            embeds.append(embed)
+        if not embeds:
+            embed = discord.Embed(
+                title=f"Members List - {title_scope} (Page {page_num}/{total_pages})",
+                description="No members found.",
+                color=discord.Color.green(),
             )
-
-        embed = discord.Embed(
-            title=f"Members List - {title_scope} (Page {page_num}/{total_pages})",
-            description="\n".join(desc_lines) if desc_lines else "No members found.",
-            color=discord.Color.green(),
-        )
-        embed.set_footer(text=f"Sort: {'Alphabetical' if sort_mode == 'alphabetical' else 'ID'}")
-        return embed
+            embed.set_footer(text=f"Sort: {'Alphabetical' if sort_mode == 'alphabetical' else 'ID'}")
+            embeds = [embed]
+        return embeds
 
     class PrefixMembersPaginator(discord.ui.View):
         def __init__(self, owner_id, current_page):
@@ -1364,16 +1355,19 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.current_page > 1:
                 self.current_page -= 1
-            await interaction.response.edit_message(embed=get_embed(self.current_page), view=self)
+            embeds = get_embeds(self.current_page)
+            await interaction.response.edit_message(embeds=embeds, view=self)
 
         @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
         async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
             if self.current_page < total_pages:
                 self.current_page += 1
-            await interaction.response.edit_message(embed=get_embed(self.current_page), view=self)
+            embeds = get_embeds(self.current_page)
+            await interaction.response.edit_message(embeds=embeds, view=self)
 
     view = PrefixMembersPaginator(ctx.author.id, start_page)
-    await ctx.send(embed=get_embed(start_page), view=view)
+    embeds = get_embeds(start_page)
+    await ctx.send(embeds=embeds, view=view)
 
 
 # Cor;toggleuntracked — Toggle a member's tracked/untracked status
