@@ -1241,6 +1241,7 @@ def fit_box_drawing(text):
 
 def build_member_profile_embed(member, system=None):
     """Build a member profile embed matching PluralKit-style layout."""
+
     try:
         embed_color = int(str(member.get("color", "FFFFFF")).lstrip("#"), 16)
     except (TypeError, ValueError):
@@ -1277,13 +1278,12 @@ def build_member_profile_embed(member, system=None):
     if banner_url:
         embed.set_image(url=banner_url)
 
-    # --- Section 1: Basic info in embed description ---
-    info_lines = []
+    # --- Section 1: Modern fields with emoji icons ---
     if display_name and display_name != member_name:
-        info_lines.append(f"**Display name:** {_truncate(display_name, 250)}")
+        embed.add_field(name="🪪 Display Name", value=_truncate(display_name, 250), inline=True)
     pronouns = member.get("pronouns")
     if pronouns:
-        info_lines.append(f"**Pronouns:** {_truncate(pronouns, 250)}")
+        embed.add_field(name="🌈 Pronouns", value=_truncate(pronouns, 250), inline=True)
     birthday = member.get("birthday")
     if birthday:
         try:
@@ -1296,7 +1296,19 @@ def build_member_profile_embed(member, system=None):
                 birthday_display = birthday
         except Exception:
             birthday_display = birthday
-        info_lines.append(f"**Birthday:** {birthday_display}")
+        embed.add_field(name="🎂 Birthday", value=birthday_display, inline=True)
+
+    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
+    if tags:
+        embed.add_field(name="🏷️ Tags", value=_truncate(tags, 250), inline=True)
+
+    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
+    if playlist_text:
+        embed.add_field(name="🎵 Playlist", value=playlist_text, inline=True)
+
+    color_val = member.get("color")
+    if color_val:
+        embed.add_field(name="🎨 Color", value=f"#{str(color_val).lstrip('#')}", inline=True)
 
     # Fronting status
     current_front = member.get("current_front")
@@ -1314,36 +1326,21 @@ def build_member_profile_embed(member, system=None):
                             cofront_names.append(members_dict[cofront_id].get("name", cofront_id))
                 if cofront_names:
                     cofront_text = f" (with {', '.join(cofront_names)})"
-            info_lines.append(f"**Currently fronting:** Yes, for {duration}{cofront_text}")
+            embed.add_field(name="🟢 Currently Fronting", value=f"Yes, for {duration}{cofront_text}", inline=False)
         except (ValueError, KeyError):
-            info_lines.append("**Currently fronting:** Yes")
+            embed.add_field(name="🟢 Currently Fronting", value="Yes", inline=False)
     else:
-        info_lines.append("**Currently fronting:** No")
+        embed.add_field(name="⚪ Currently Fronting", value="No", inline=False)
 
     total_front_seconds = calculate_front_duration(member)
     if total_front_seconds > 0:
-        info_lines.append(f"**Total front time:** {format_duration(total_front_seconds)}")
+        embed.add_field(name="⏱️ Total Front Time", value=format_duration(total_front_seconds), inline=True)
 
-    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
-    if tags:
-        info_lines.append(f"**Tags:** {_truncate(tags, 250)}")
-
-    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
-    if playlist_text:
-        info_lines.append(f"**Playlist:** {playlist_text}")
-
-    color_val = member.get("color")
-    if color_val:
-        info_lines.append(f"**Color:** #{str(color_val).lstrip('#')}")
-
-    if info_lines:
-        embed.description = "\n".join(info_lines)
-
-    # --- Section 2: Proxy tags (non-inline field = divider line above) ---
+    # --- Section 2: Proxy tags ---
     proxy_text = render_member_proxy_result(member)
     if proxy_text and proxy_text != "Not set":
         embed.add_field(
-            name="Proxy tags",
+            name="🔗 Proxy Tags",
             value=f"`{_truncate(proxy_text, 1000)}`",
             inline=False,
         )
@@ -1353,7 +1350,7 @@ def build_member_profile_embed(member, system=None):
         groups_text = format_member_group_lines(system, member)
         if groups_text and groups_text != "None":
             embed.add_field(
-                name="Groups",
+                name="👥 Groups",
                 value=_truncate(groups_text, 1024),
                 inline=False,
             )
@@ -1363,7 +1360,7 @@ def build_member_profile_embed(member, system=None):
     if bio_text:
         bio_text = fit_box_drawing(bio_text)
         embed.add_field(
-            name="\u200b",
+            name="📝 Description",
             value=_truncate(bio_text, 1024),
             inline=False,
         )
@@ -1375,6 +1372,7 @@ def build_member_profile_embed(member, system=None):
         try:
             created_dt = datetime.fromisoformat(created_iso)
             footer_parts.append(f"Created on {created_dt.strftime('%B %d, %Y')}")
+            embed.timestamp = created_dt
         except Exception:
             pass
     embed.set_footer(text=" | ".join(footer_parts))
