@@ -486,6 +486,12 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     if after.author.bot or after.webhook_id is not None:
         return
 
+    # Use the SAME dedup key as on_message so they block each other.
+    # If on_message already claimed this message ID, skip entirely.
+    if _mark_source_message_processed(after.id, source="message"):
+        print(f"[PROXY-DEBUG] on_message_edit SKIPPED (dedup with on_message) msg {after.id}")
+        return
+
     # If on_message is currently proxying this message, don't race with it.
     if after.id in _currently_proxying:
         print(f"[PROXY-DEBUG] on_message_edit SKIPPED (currently_proxying) msg {after.id}")
@@ -500,10 +506,6 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     # If before.content is empty, the message wasn't cached — this is likely an
     # embed-unfurl edit, not a real user edit.  Skip to avoid duplicate proxies.
     if not before.content or before.content == after.content:
-        return
-
-    # Prevent accidental double-processing of the same edited source message.
-    if _mark_source_message_processed(after.id, source="edit"):
         return
 
     # Never proxy the starter post of a forum thread, even after edits.
