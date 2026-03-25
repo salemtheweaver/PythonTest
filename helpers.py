@@ -1331,10 +1331,10 @@ def build_member_profile_embed(member, system=None):
 
     # --- Section 1: Modern fields with emoji icons ---
     if display_name and display_name != member_name:
-        embed.add_field(name="🪪 Display Name", value=_truncate(display_name, 250), inline=True)
+        embed.add_field(name="Display Name", value=_truncate(display_name, 250), inline=True)
     pronouns = member.get("pronouns")
     if pronouns:
-        embed.add_field(name="🌈 Pronouns", value=_truncate(pronouns, 250), inline=True)
+        embed.add_field(name="Pronouns", value=_truncate(pronouns, 250), inline=True)
     birthday = member.get("birthday")
     if birthday:
         try:
@@ -1347,19 +1347,19 @@ def build_member_profile_embed(member, system=None):
                 birthday_display = birthday
         except Exception:
             birthday_display = birthday
-        embed.add_field(name="🎂 Birthday", value=birthday_display, inline=True)
+        embed.add_field(name="Birthday", value=birthday_display, inline=True)
 
     tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
     if tags:
-        embed.add_field(name="🏷️ Tags", value=_truncate(tags, 250), inline=True)
+        embed.add_field(name="Tags", value=_truncate(tags, 250), inline=True)
 
     playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
     if playlist_text:
-        embed.add_field(name="🎵 Playlist", value=playlist_text, inline=True)
+        embed.add_field(name="Playlist", value=playlist_text, inline=True)
 
     color_val = member.get("color")
     if color_val:
-        embed.add_field(name="🎨 Color", value=f"#{str(color_val).lstrip('#')}", inline=True)
+        embed.add_field(name="Color", value=f"#{str(color_val).lstrip('#')}", inline=True)
 
     # Fronting status
     current_front = member.get("current_front")
@@ -1377,21 +1377,21 @@ def build_member_profile_embed(member, system=None):
                             cofront_names.append(members_dict[cofront_id].get("name", cofront_id))
                 if cofront_names:
                     cofront_text = f" (with {', '.join(cofront_names)})"
-            embed.add_field(name="🟢 Currently Fronting", value=f"Yes, for {duration}{cofront_text}", inline=False)
+            embed.add_field(name="Currently Fronting", value=f"Yes, for {duration}{cofront_text}", inline=False)
         except (ValueError, KeyError):
-            embed.add_field(name="🟢 Currently Fronting", value="Yes", inline=False)
+            embed.add_field(name="Currently Fronting", value="Yes", inline=False)
     else:
-        embed.add_field(name="⚪ Currently Fronting", value="No", inline=False)
+        embed.add_field(name="Currently Fronting", value="No", inline=False)
 
     total_front_seconds = calculate_front_duration(member)
     if total_front_seconds > 0:
-        embed.add_field(name="⏱️ Total Front Time", value=format_duration(total_front_seconds), inline=True)
+        embed.add_field(name="Total Front Time", value=format_duration(total_front_seconds), inline=True)
 
     # --- Section 2: Proxy tags ---
     proxy_text = render_member_proxy_result(member)
     if proxy_text and proxy_text != "Not set":
         embed.add_field(
-            name="🔗 Proxy Tags",
+            name="Proxy Tags",
             value=f"`{_truncate(proxy_text, 1000)}`",
             inline=False,
         )
@@ -1401,7 +1401,7 @@ def build_member_profile_embed(member, system=None):
         groups_text = format_member_group_lines(system, member)
         if groups_text and groups_text != "None":
             embed.add_field(
-                name="👥 Groups",
+                name="Groups",
                 value=_truncate(groups_text, 1024),
                 inline=False,
             )
@@ -1410,7 +1410,7 @@ def build_member_profile_embed(member, system=None):
     bio_text = fit_box_drawing(str(member.get("description") or "").strip())
     if bio_text:
         embed.add_field(
-            name="📝 Description",
+            name="Description",
             value=_truncate(bio_text, 1024),
             inline=False,
         )

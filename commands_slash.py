@@ -712,10 +712,10 @@ async def listsubsystems(
     for sub_id, sub_data in sorted(subsystems.items()):
         sub_name = sub_data.get("subsystem_name", "Unnamed Subsystem")
         member_count = len(sub_data.get("members", {}))
-        lines.append(f"🧩 **{sub_name}** (`{sub_id}`) — {member_count} members")
+        lines.append(f"**{sub_name}** (`{sub_id}`) — {member_count} members")
 
     view = cv2_simple(
-        f"🧩 {system.get('system_name', 'System')} Subsystems",
+        f"{system.get('system_name', 'System')} Subsystems",
         "\n".join(lines),
         color="5865F2",
         footer=f"Total subsystems: {len(subsystems)}",
