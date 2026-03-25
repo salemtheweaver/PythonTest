@@ -1386,6 +1386,7 @@ async def toggle_untracked_prefix(ctx: commands.Context, member_id: str = None, 
 # Cor;viewmember — Show a member's profile card embed
 @bot.command(name="viewmember", aliases=["vm"])
 async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None, target_user_id: str = None):
+    print(f"[DEBUG] viewmember_prefix called: ctx.author={ctx.author}, member_id={member_id}, subsystem_id={subsystem_id}, target_user_id={target_user_id}")
     if not member_id:
         await ctx.send("Usage: Cor;viewmember <member_id or name> [subsystem_id] [target_user_id]")
         return
@@ -1406,6 +1407,7 @@ async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsys
         await ctx.send("You do not have permission to view this member card.")
         return
 
+    print(f"[DEBUG] viewmember_prefix sending card for member_id={member_id}, resolved_member_id={resolved_member_id}")
     await ctx.send(view=cv2_view(build_member_profile_cv2(member, system=system)))
 
 
