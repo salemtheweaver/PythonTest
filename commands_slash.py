@@ -4233,6 +4233,7 @@ async def members_list(
     whole_system: bool = False,
     target_user_id: str = None,
 ):
+    await interaction.response.defer()
     requester_id = interaction.user.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
