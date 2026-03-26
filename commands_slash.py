@@ -2730,19 +2730,20 @@ async def globalautoproxy(interaction: discord.Interaction, mode: str):
     app_commands.Choice(name="Latch (last tagged proxy)", value="latch"),
 ])
 async def autoproxy_server(interaction: discord.Interaction, mode: str):
+    await interaction.response.defer(ephemeral=True)
     if interaction.guild_id is None:
-        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        await interaction.followup.send("This command can only be used in a server.", ephemeral=True)
         return
 
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
-        await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+        await interaction.followup.send("You must register a main system first using /register.", ephemeral=True)
         return
 
     system = systems_data["systems"].get(system_id)
     if not system:
-        await interaction.response.send_message("System not found.", ephemeral=True)
+        await interaction.followup.send("System not found.", ephemeral=True)
         return
 
     overrides = system.setdefault("autoproxy_server_overrides", {})
@@ -2752,7 +2753,7 @@ async def autoproxy_server(interaction: discord.Interaction, mode: str):
         if guild_key in overrides:
             overrides.pop(guild_key, None)
             save_systems()
-        await interaction.response.send_message("Server autoproxy now inherits your global autoproxy setting.", ephemeral=True)
+        await interaction.followup.send("Server autoproxy now inherits your global autoproxy setting.", ephemeral=True)
         return
 
     settings = get_server_autoproxy_settings(system, interaction.guild_id, create=True)
@@ -2766,7 +2767,7 @@ async def autoproxy_server(interaction: discord.Interaction, mode: str):
     else:
         message = "Server autoproxy is now **latch** for this server."
 
-    await interaction.response.send_message(message, ephemeral=True)
+    await interaction.followup.send(message, ephemeral=True)
 
 # /autoproxystatus — View effective global and server autoproxy settings
 @tree.command(name="autoproxystatus", description="View effective global/server autoproxy settings")
@@ -4333,7 +4334,8 @@ async def members_list(
             page_members = self.member_rows[start_idx:end_idx]
 
             containers = []
-            for scope_id, member_id, m in page_members[:5]:
+            # Limit to 10 containers per page to avoid exceeding 25-child limit
+            for scope_id, member_id, m in page_members[:10]:
                 container = build_member_profile_cv2(m, system=self.scoped_members_lookup.get(scope_id))
                 containers.append(container)
             if not containers:
