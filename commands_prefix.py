@@ -490,8 +490,9 @@ async def help_prefix(ctx: commands.Context):
             "description": (
                 "**Safety Lists**\n"
                 "• Cor;blockuser (`bu`) / Cor;unblockuser (`ubu`) / Cor;blockedusers (`bus`)\n"
-                "• Cor;trustuser (`tru`) / Cor;untrustuser (`utru`) / Cor;trustedusers (`trus`)\n"
-                "• Cor;frienduser (`fru`) / Cor;unfrienduser (`ufru`) / Cor;friendusers (`frus`)\n"
+                "• Cor;trustuser (`tru`) / Cor;untrustuser (`utru`)\n"
+                "• Cor;frienduser (`fru`) / Cor;unfrienduser (`ufru`)\n"
+                "• Cor;externalusers (`extusers`, `trustedusers`, `friendusers`, `trus`, `frus`)\n"
                 "• Cor;muteuser (`mu`) / Cor;unmuteuser (`umu`) / Cor;mutedusers (`mus`)\n"
                 "• Cor;tempblockuser (`tbu`) <user_id> [hours]\n"
                 "• Cor;tempblockedusers (`tbus`)\n"
@@ -530,8 +531,9 @@ async def help_prefix(ctx: commands.Context):
                 "`mem` members | `vm` viewmember | `emt` editmembertag | `amt` addmembertag | `rmt` removemembertag | `ms` membersort | `mvm` movemember | `msg` messageto\n"
                 "`cg` creategroup | `eg` editgroup | `dg` deletegroup | `lg` listgroups | `go` grouporder | `goui` grouporderui | `amg` addmembergroup | `rmg` removemembergroup | `mg` membergroups\n"
                 "`aex` allowexternal | `epr` externalprivacy | `est` externalstatus | `elim` externallimits | `eto` externaltrustedonly | `eqh` externalquiethours | `ert` externalretention | `sxe` sendexternal\n"
-                "`bu` blockuser | `ubu` unblockuser | `bus` blockedusers | `tru` trustuser | `utru` untrustuser | `trus` trustedusers\n"
-                "`fru` frienduser | `ufru` unfrienduser | `frus` friendusers\n"
+                "`bu` blockuser | `ubu` unblockuser | `bus` blockedusers | `tru` trustuser | `utru` untrustuser\n"
+                "`fru` frienduser | `ufru` unfrienduser\n"
+                "`extusers` externalusers | `trustedusers`/`trus` trustedusers | `friendusers`/`frus` friendusers\n"
                 "`mu` muteuser | `umu` unmuteuser | `mus` mutedusers | `tbu` tempblockuser | `tbus` tempblockedusers | `ep` externalpending | `apx` approveexternal | `rex` recentexternal | `rptx` reportexternal\n"
                 "`mr` modreports | `mw` modwarn | `msu` modsuspend | `mb` modban | `mub` modunban | `map` modappeal"
             ),
@@ -3552,20 +3554,6 @@ async def untrustuser_prefix(ctx: commands.Context, user_id: str):
     await ctx.send(f"Trusted user removed: `{parsed}`.")
 
 
-# Cor;trustedusers — List all trusted users
-@bot.command(name="trustedusers", aliases=["trus"])
-async def trustedusers_prefix(ctx: commands.Context):
-    user_id = ctx.author.id
-    system_id = get_user_system_id(user_id)
-    if not system_id:
-        await ctx.send("You must register using /register.")
-        return
-    system = systems_data["systems"].get(system_id)
-    trusted = get_external_settings(system).get("trusted_users", [])
-    if not trusted:
-        await ctx.send("No trusted users.")
-        return
-    await ctx.send("Trusted users:\n" + "\n".join([f"- {u}" for u in trusted]))
 
 
 # Cor;frienduser — Send a mutual friend request to another user
