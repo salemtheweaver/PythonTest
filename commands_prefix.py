@@ -1,3 +1,29 @@
+# Cor;friendprivacy — List all friended users and their alters with privacy buckets
+@bot.command(name="friendprivacy", aliases=["frp"])
+async def friendprivacy_prefix(ctx: commands.Context):
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register using /register.")
+        return
+    system = systems_data["systems"].get(system_id)
+    friends = get_external_settings(system).get("friend_users", [])
+    if not friends:
+        await ctx.send("No friend users.")
+        return
+    lines = ["**Friended Users and Their Alters:**"]
+    for friend_id in friends:
+        friend_system = systems_data["systems"].get(str(friend_id))
+        if not friend_system:
+            lines.append(f"- <@{friend_id}> (system not found)")
+            continue
+        alters = []
+        for scope_id, members_dict in iter_system_member_dicts(friend_system):
+            for member_id, member in members_dict.items():
+                privacy = get_member_privacy_level(member)
+                alters.append(f"    • {member.get('name', member_id)} (`{member_id}`) — {privacy} ({get_scope_label(scope_id)})")
+        lines.append(f"- <@{friend_id}> ({len(alters)} alters):\n" + ("\n".join(alters) if alters else "    (no alters found)"))
+    await ctx.send("\n".join(lines))
 import discord
 import random
 import re
@@ -1400,7 +1426,7 @@ async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsys
     target_scope_id, members_dict, resolved_member_id, member, resolve_error = \
         resolve_member_identifier_in_system(system, member_id, subsystem_id=subsystem_id)
     if resolve_error:
-        await ctx.send(resolve_error)
+       
         return
 
     if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
