@@ -1453,6 +1453,9 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
     if scope_lower == "all":
         member_rows = []
         scoped_members_lookup = {}
+        subsystem_names = {None: "Main System"}
+        for sub_id, sub_data in system.get("subsystems", {}).items():
+            subsystem_names[sub_id] = sub_data.get("name", f"Subsystem {sub_id}")
         for scope_id, scoped_members in iter_system_member_dicts(system):
             scoped_members_lookup[scope_id] = scoped_members
             for member_id, member in scoped_members.items():
@@ -1461,7 +1464,8 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
                     continue
                 if not is_tracked(member):
                     continue
-                member_rows.append((scope_id, member_id, member))
+                # Attach subsystem name for display
+                member_rows.append((scope_id, member_id, member, subsystem_names.get(scope_id, f"Subsystem {scope_id}")))
         title_scope = "Entire System"
     elif scope_lower in {"main", "none"}:
         members_dict = get_system_members(system_id, None)
@@ -1474,7 +1478,7 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
                 continue
             if not is_tracked(member):
                 continue
-            member_rows.append((None, member_id, member))
+            member_rows.append((None, member_id, member, "Main System"))
         title_scope = "Main System"
     else:
         members_dict = get_system_members(system_id, scope)
@@ -1484,6 +1488,8 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
             print("[DEBUG] Exiting: Subsystem not found.")
             return
         scoped_members_lookup = {scope: members_dict}
+        # Get subsystem name
+        subsystem_name = system.get("subsystems", {}).get(scope, {}).get("name", f"Subsystem {scope}")
         member_rows = []
         for member_id, member in members_dict.items():
             privacy_level = get_member_privacy_level(member)
@@ -1491,8 +1497,8 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
                 continue
             if not is_tracked(member):
                 continue
-            member_rows.append((scope, member_id, member))
-        title_scope = get_scope_label(scope).capitalize()
+            member_rows.append((scope, member_id, member, subsystem_name))
+        title_scope = subsystem_name
     print(f"[DEBUG] member_rows count: {len(member_rows)}")
 
     if not member_rows:
@@ -1512,8 +1518,11 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         page_members = member_rows[start_idx:end_idx]
 
         containers = []
-        for scope_id, member_id, member in page_members[:5]:
+        for scope_id, member_id, member, subsystem_name in page_members[:5]:
+            # Pass subsystem_name to the card builder if needed, or add to footer/title
             container = build_member_profile_cv2(member, system=scoped_members_lookup.get(scope_id, system))
+            # Optionally, you can add the subsystem name to the container here if you want it visible
+            container.add_item(discord.ui.TextDisplay(f"-# Subsystem: {subsystem_name}"))
             containers.append(container)
         if not containers:
             empty = discord.ui.Container(accent_colour=_cv2_color("00FF00"))
