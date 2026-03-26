@@ -75,7 +75,6 @@ async def _cleanup_duplicate_proxy_messages(channel, original_author_id, proxied
             if msg.content and msg.content.strip() == proxied_content.strip():
                 try:
                     await msg.delete()
-                    print(f"[PROXY-DEBUG] Deleted duplicate webhook msg {msg.id} from webhook {msg.webhook_id}")
                 except (discord.Forbidden, discord.NotFound, discord.HTTPException):
                     pass
     except (discord.Forbidden, discord.HTTPException):
@@ -372,20 +371,20 @@ async def on_message(message: discord.Message):
     try:
         await message.delete()
     except (discord.Forbidden, discord.NotFound, discord.HTTPException) as e:
-        print(f"[PROXY-DEBUG] on_message FAILED to delete original msg {message.id}: {e} — skipping proxy")
+        # [PROXY-DEBUG] log removed
         _currently_proxying.discard(message.id)
         return
 
-    print(f"[PROXY-DEBUG] on_message sending proxy for msg {message.id} by {message.author} in #{getattr(message.channel, 'name', '?')}: '{final_content[:80]}'")
+    # [PROXY-DEBUG] log removed
 
     try:
         proxied_message = await webhook.send(**send_kwargs)
     except (discord.HTTPException, discord.Forbidden) as e:
-        print(f"[PROXY-DEBUG] on_message webhook.send FAILED for msg {message.id}: {e}")
+        # [PROXY-DEBUG] log removed
         _currently_proxying.discard(message.id)
         return
 
-    print(f"[PROXY-DEBUG] on_message proxied msg {message.id} -> webhook msg {proxied_message.id}")
+    # [PROXY-DEBUG] log removed
 
     # Record that on_message successfully proxied this source message.
     _on_message_proxied_ids[message.id] = datetime.now(timezone.utc)
@@ -483,18 +482,18 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
     # Use the SAME dedup key as on_message so they block each other.
     # If on_message already claimed this message ID, skip entirely.
     if _mark_source_message_processed(after.id, source="message"):
-        print(f"[PROXY-DEBUG] on_message_edit SKIPPED (dedup with on_message) msg {after.id}")
+        # [PROXY-DEBUG] log removed
         return
 
     # If on_message is currently proxying this message, don't race with it.
     if after.id in _currently_proxying:
-        print(f"[PROXY-DEBUG] on_message_edit SKIPPED (currently_proxying) msg {after.id}")
+        # [PROXY-DEBUG] log removed
         return
 
     # If on_message already proxied this message, ALWAYS skip.
     # Edits after proxy are irrelevant — the original was deleted and replaced.
     if after.id in _on_message_proxied_ids:
-        print(f"[PROXY-DEBUG] on_message_edit SKIPPED (already proxied by on_message) msg {after.id}")
+        # [PROXY-DEBUG] log removed
         return
 
     # If before.content is empty, the message wasn't cached — this is likely an
@@ -668,7 +667,7 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
 
     if existing_proxied_id:
         # Edit the existing proxied message instead of creating a duplicate
-        print(f"[PROXY-DEBUG] on_message_edit EDITING existing proxy {existing_proxied_id} for msg {after.id}")
+        # [PROXY-DEBUG] log removed
         try:
             edit_kwargs = {"content": final_content}
             if reply_embed is not None:
@@ -683,10 +682,10 @@ async def on_message_edit(before: discord.Message, after: discord.Message):
         try:
             await after.delete()
         except (discord.Forbidden, discord.NotFound, discord.HTTPException) as e:
-            print(f"[PROXY-DEBUG] on_message_edit FAILED to delete original msg {after.id}: {e} — skipping proxy")
+            # [PROXY-DEBUG] log removed
             return
 
-        print(f"[PROXY-DEBUG] on_message_edit SENDING NEW proxy for msg {after.id} by {after.author}")
+        # [PROXY-DEBUG] log removed
         proxied_message = await webhook.send(**send_kwargs)
         remember_proxied_message_origin(
             proxied_message=proxied_message,
