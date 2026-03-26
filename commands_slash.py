@@ -4237,7 +4237,7 @@ async def members_list(
     requester_id = interaction.user.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
-        await interaction.response.send_message(error, ephemeral=True)
+        await interaction.followup.send(error, ephemeral=True)
         return
 
     def is_tracked(member):
@@ -4258,7 +4258,7 @@ async def members_list(
     else:
         members_dict = get_system_members(system_id, subsystem_id)
         if members_dict is None:
-            await interaction.response.send_message("Subsystem not found.", ephemeral=True)
+            await interaction.followup.send("Subsystem not found.", ephemeral=True)
             return
         scoped_members_lookup = {subsystem_id: members_dict}
         member_rows = []
@@ -4271,7 +4271,7 @@ async def members_list(
         title_scope = get_scope_label(subsystem_id).capitalize()
 
     if not member_rows:
-        await interaction.response.send_message("No visible members found.", ephemeral=True)
+        await interaction.followup.send("No visible members found.", ephemeral=True)
         return
 
     sort_mode = get_member_sort_mode(system)
