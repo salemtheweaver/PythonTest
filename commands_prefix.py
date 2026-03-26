@@ -145,19 +145,49 @@ async def removemembers_prefix(ctx: commands.Context, *args):
     if not member_ids:
         await ctx.send("No member IDs provided.")
         return
-    removed = []
+    # Prepare confirmation message
+    found = []
     not_found = []
-    for member_id in member_ids:
-        if member_id in members_dict:
-            del members_dict[member_id]
-            removed.append(member_id)
+    resolved_ids = []
+    # Build a lookup for name->id (case-insensitive)
+    name_to_id = {member["name"].lower(): mid for mid, member in members_dict.items() if "name" in member}
+    for token in member_ids:
+        # Try ID match first
+        if token in members_dict:
+            name = members_dict[token].get("name", token)
+            found.append(f"{name} (`{token}`)")
+            resolved_ids.append(token)
         else:
-            not_found.append(member_id)
-    save_systems()
-    msg = f"Removed members: {', '.join(removed)}." if removed else "No members removed."
+            # Try name match (case-insensitive, exact)
+            token_lc = token.lower()
+            if token_lc in name_to_id:
+                mid = name_to_id[token_lc]
+                name = members_dict[mid].get("name", mid)
+                found.append(f"{name} (`{mid}`)")
+                resolved_ids.append(mid)
+            else:
+                not_found.append(token)
+    if not found:
+        await ctx.send(f"No valid members found to remove. Not found: {', '.join(not_found)}.")
+        return
+    confirm_msg = (
+        f"Are you sure you want to remove the following members?\n\n"
+        + "\n".join(found)
+    )
     if not_found:
-        msg += f" Not found: {', '.join(not_found)}."
-    await ctx.send(msg)
+        confirm_msg += f"\n\nNot found: {', '.join(not_found)}"
+
+    async def do_remove(interaction):
+        removed = []
+        for mid in resolved_ids:
+            if mid in members_dict:
+                del members_dict[mid]
+                removed.append(mid)
+        save_systems()
+        msg = f"Removed members: {', '.join(removed)}." if removed else "No members removed."
+        await interaction.response.edit_message(content=msg, view=None)
+
+    await ctx.send(confirm_msg, view=ConfirmAction(do_remove))
 import discord
 import random
 import re
