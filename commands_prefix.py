@@ -1,3 +1,45 @@
+# Cor;removemembers — Remove multiple members by IDs (bulk)
+@bot.command(name="removemembers")
+async def removemembers_prefix(ctx: commands.Context, *args):
+    """Remove multiple members by IDs. Usage: Cor;removemembers <member_id1> <member_id2> ... [subsystem_id]"""
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+    if not args or len(args) < 1:
+        await ctx.send("Usage: Cor;removemembers <member_id1> <member_id2> ... [subsystem_id]")
+        return
+    # Check if last arg is a valid subsystem_id
+    possible_subsystem_id = args[-1]
+    members_dict = get_system_members(system_id, possible_subsystem_id)
+    if members_dict is not None and possible_subsystem_id in system.get("subsystems", {}):
+        subsystem_id = possible_subsystem_id
+        member_ids = args[:-1]
+    else:
+        subsystem_id = None
+        members_dict = get_system_members(system_id, None)
+        member_ids = args
+    if not member_ids:
+        await ctx.send("No member IDs provided.")
+        return
+    removed = []
+    not_found = []
+    for member_id in member_ids:
+        if member_id in members_dict:
+            del members_dict[member_id]
+            removed.append(member_id)
+        else:
+            not_found.append(member_id)
+    save_systems()
+    msg = f"Removed members: {', '.join(removed)}." if removed else "No members removed."
+    if not_found:
+        msg += f" Not found: {', '.join(not_found)}."
+    await ctx.send(msg)
 import discord
 import random
 import re
