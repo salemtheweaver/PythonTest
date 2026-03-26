@@ -677,7 +677,8 @@ async def editsubsystemcard(
         joined = ", ".join(warnings)
         msg += (
             f"\n\u26a0\ufe0f Discord provided an expiring attachment URL for {joined}. "
-            "If images disappear later, try uploading via a direct image URL or re-uploading."
+            "If images disappear later, upload your image to a service like Imgur, copy the direct image URL, and use that as your profile pic or banner. "
+            "(Direct URLs from image hosts are permanent; Discord uploads expire after a short time.)"
         )
     await interaction.response.send_message(msg, view=cv2_view(container), ephemeral=True)
 

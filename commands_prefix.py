@@ -1706,15 +1706,30 @@ async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, 
         member["profile_pic"] = attachments[0].url
         member["banner"] = attachments[1].url
         updated = ["profile_pic", "banner"]
+        await ctx.send(
+            ":warning: **Discord image URLs expire after 24 hours.**\n"
+            "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
+            "See: https://imgur.com/upload"
+        )
     else:
         single = attachments[0]
         filename = (single.filename or "").lower()
         if "banner" in filename:
             member["banner"] = single.url
             updated = ["banner"]
+            await ctx.send(
+                ":warning: **Discord image URLs expire after 24 hours.**\n"
+                "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
+                "See: https://imgur.com/upload"
+            )
         else:
             member["profile_pic"] = single.url
             updated = ["profile_pic"]
+            await ctx.send(
+                ":warning: **Discord image URLs expire after 24 hours.**\n"
+                "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
+                "See: https://imgur.com/upload"
+            )
 
     save_systems()
     await ctx.send(
@@ -2635,6 +2650,11 @@ async def editsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = No
                     subsystem_data["profile_pic"] = ctx.message.attachments[0].url
                     save_systems()
                     container = build_subsystem_card_cv2(subsystem_data, subsystem_id, system)
+                    await ctx.send(
+                        ":warning: **Discord image URLs expire after 24 hours.**\n"
+                        "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
+                        "See: https://imgur.com/upload"
+                    )
                     await ctx.send("Profile picture updated.", view=cv2_view(container))
                     return
                 except Exception as e:
@@ -2646,6 +2666,11 @@ async def editsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = No
                     subsystem_data["banner"] = ctx.message.attachments[0].url
                     save_systems()
                     container = build_subsystem_card_cv2(subsystem_data, subsystem_id, system)
+                    await ctx.send(
+                        ":warning: **Discord image URLs expire after 24 hours.**\n"
+                        "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
+                        "See: https://imgur.com/upload"
+                    )
                     await ctx.send("Banner updated.", view=cv2_view(container))
                     return
                 except Exception as e:
@@ -2967,6 +2992,11 @@ async def serveridentity_prefix(ctx: commands.Context, field: str = None, *, val
         attachment = ctx.message.attachments[0] if ctx.message.attachments else None
         if attachment:
             server_app["profile_pic"] = attachment.url
+            await ctx.send(
+                ":warning: **Discord image URLs expire after 24 hours.**\n"
+                "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
+                "See: https://imgur.com/upload"
+            )
             msg = "Server icon updated from attachment."
         elif value and value.strip().startswith("http"):
             server_app["profile_pic"] = value.strip()
@@ -3108,6 +3138,11 @@ async def servermemberidentity_prefix(
         attachment = ctx.message.attachments[0] if ctx.message.attachments else None
         if attachment:
             override["profile_pic"] = attachment.url
+            await ctx.send(
+                ":warning: **Discord image URLs expire after 24 hours.**\n"
+                "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
+                "See: https://imgur.com/upload"
+            )
             msg = "Member server icon updated from attachment."
         elif value and value.strip().startswith("http"):
             override["profile_pic"] = value.strip()
@@ -3617,42 +3652,44 @@ async def unfrienduser_prefix(ctx: commands.Context, user_id: str):
     await ctx.send(f"Friend user removed: `{parsed}`.")
 
 
-# Cor;friendusers — List all friend users
-@bot.command(name="friendusers", aliases=["frus"])
-async def friendusers_prefix(ctx: commands.Context):
+
+# Cor;externalusers — List all external users with privacy bucket and username
+@bot.command(name="externalusers", aliases=["extusers", "trustedusers", "friendusers", "trus", "frus"])
+async def externalusers_prefix(ctx: commands.Context):
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await ctx.send("You must register using /register.")
         return
     system = systems_data["systems"].get(system_id)
-    friends = get_external_settings(system).get("friend_users", [])
-    if not friends:
-        await ctx.send("No friend users.")
-        return
-    await ctx.send("Friend users:\n" + "\n".join([f"- {u}" for u in friends]))
-
-
-# Cor;muteuser — Silently drop external messages from a user
-@bot.command(name="muteuser", aliases=["mu"])
-async def muteuser_prefix(ctx: commands.Context, user_id: str):
-    owner_id = ctx.author.id
-    system_id = get_user_system_id(owner_id)
-    if not system_id:
-        await ctx.send("You must register using /register.")
-        return
-    parsed = parse_discord_user_id(user_id)
-    if not parsed:
-        await ctx.send("Invalid user ID. Use a numeric Discord ID or mention.")
-        return
-    system = systems_data["systems"].get(system_id)
     settings = get_external_settings(system)
-    muted = settings.get("muted_users", [])
-    if parsed not in muted:
-        muted.append(parsed)
-        settings["muted_users"] = muted
-        save_systems()
-    await ctx.send(f"Muted user ID `{parsed}`.")
+    trusted = set(settings.get("trusted_users", []))
+    friends = set(settings.get("friend_users", []))
+    # Public users: anyone not in trusted/friends, but for now, only show trusted/friends for privacy
+    all_ids = trusted | friends
+    if not all_ids:
+        await ctx.send("No trusted or friend users.")
+        return
+    # Build bucket map
+    user_buckets = {}
+    for uid in all_ids:
+        if uid in trusted:
+            user_buckets[uid] = "trusted"
+        if uid in friends:
+            # If user is both, show as friend (higher trust)
+            user_buckets[uid] = "friend"
+    # Fetch usernames
+    lines = []
+    for uid, bucket in user_buckets.items():
+        user = ctx.bot.get_user(int(uid))
+        if user is None:
+            try:
+                user = await ctx.bot.fetch_user(int(uid))
+            except Exception:
+                user = None
+        uname = user.name + (f"#{user.discriminator}" if hasattr(user, "discriminator") else "") if user else "(unknown)"
+        lines.append(f"- {uname} (`{uid}`) — {bucket}")
+    await ctx.send("External users (trusted/friends):\n" + "\n".join(lines))
 
 
 # Cor;unmuteuser — Remove a user from the muted list
