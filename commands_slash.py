@@ -4358,7 +4358,6 @@ async def members_list(
             if self.total_pages > 1:
                 self.add_item(discord.ui.ActionRow(_MemberPageSelect(self)))
 
-    await interaction.response.defer()
     paginator = Paginator(member_rows, scoped_members_lookup, title_scope, sort_mode, members_per_page)
     await interaction.followup.send(view=paginator)
 # /toggleuntracked — Exclude or include a member in the total count
