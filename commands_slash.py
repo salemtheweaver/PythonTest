@@ -2799,7 +2799,10 @@ async def autoproxystatus(interaction: discord.Interaction):
         lines.append(f"Server mode: **{server_settings.get('mode', 'off')}**")
         lines.append(f"Effective mode: **{server_settings.get('mode', 'off')}**")
 
-    await interaction.response.send_message("\n".join(lines), ephemeral=True)
+    if interaction.response.is_done():
+        await interaction.followup.send("\n".join(lines), ephemeral=True)
+    else:
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 # -----------------------------
 # Front reminders
