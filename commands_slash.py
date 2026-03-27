@@ -5540,6 +5540,7 @@ async def clearall(interaction: discord.Interaction, subsystem_id: str = None):
 @tree.command(name="refresh", description="Reload all databases from disk")
 @app_commands.default_permissions(administrator=True)
 async def refresh(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     loaded_data = None
     if os.path.exists(JSON_FILE):
         with open(JSON_FILE, "r") as f:
@@ -5553,7 +5554,7 @@ async def refresh(interaction: discord.Interaction):
 
     total_members = sum(len(system.get("members", {})) + sum(len(sub["members"]) for sub in system.get("subsystems", {}).values()) for system in systems_data.get("systems", {}).values())
     total_custom_tags = sum(len(get_system_tag_list(system, create=True)) for system in systems_data.get("systems", {}).values())
-    await interaction.response.send_message(
+    await interaction.followup.send(
         f"Databases refreshed. Loaded **{len(systems_data.get('systems', {}))}** systems with **{total_members}** total members and **{total_custom_tags}** custom tags (plus common presets)."
     )
 
