@@ -1504,13 +1504,15 @@ async def addmember(
     if side_id:
         side = get_side_system(system, side_id)
         if not side:
-    await interaction.response.defer(ephemeral=True)
+            await interaction.response.defer(ephemeral=True)
             await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
             return
         if subsystem_id:
             subs = side.get("subsystems", {})
             if subsystem_id not in subs:
-    await interaction.followup.send(
+                await interaction.followup.send(
+                    "Subsystem not found in this side system.", ephemeral=True
+                )
                 return
             members = subs[subsystem_id]["members"]
         else:
