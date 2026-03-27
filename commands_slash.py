@@ -3003,8 +3003,8 @@ async def frontreminders(interaction: discord.Interaction, enabled: bool):
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
-    await interaction.response.defer(ephemeral=True)
         return
+    await interaction.response.defer(ephemeral=True)
 
     system = systems_data["systems"].get(system_id)
     if not system:
@@ -4077,17 +4077,17 @@ async def viewmember(
         if not side:
             await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
             return
-    await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
         if subsystem_id:
             subs = side.get("subsystems", {})
             if subsystem_id not in subs:
-    await interaction.response.defer(ephemeral=True)
                 await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
                 return
             members_dict = subs[subsystem_id]["members"]
         else:
             members_dict = side.get("members", {})
     else:
+        await interaction.response.defer(ephemeral=True)
         if subsystem_id:
             subsystems = system.get("subsystems", {})
             if subsystem_id not in subsystems:
