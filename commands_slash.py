@@ -1,48 +1,3 @@
-# /createsidesubsystem — Create a subsystem within a side system
-@tree.command(name="createsidesubsystem", description="Create a subsystem within a side system")
-async def createsidesubsystem(
-    interaction: discord.Interaction,
-    side_id: str,
-    subsystem_name: str
-):
-    user_id = interaction.user.id
-    system_id = get_user_system_id(user_id)
-    if not system_id:
-        await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
-        return
-    system = systems_data["systems"].get(system_id)
-    if not system:
-        await interaction.response.send_message("System not found.", ephemeral=True)
-        return
-    side_systems = system.get("side_systems", {})
-    side = side_systems.get(side_id)
-    if not side:
-        await interaction.response.send_message(f"Side system with ID `{side_id}` not found.", ephemeral=True)
-        return
-    subsystems = side.setdefault("subsystems", {})
-    import string
-    def next_subsystem_id(existing):
-        chars = string.ascii_lowercase
-        length = 1
-        while True:
-            for id_tuple in __import__('itertools').product(chars, repeat=length):
-                candidate = ''.join(id_tuple)
-                if candidate not in existing:
-                    return candidate
-            length += 1
-    next_sub_id = next_subsystem_id(subsystems)
-    subsystems[next_sub_id] = {
-        "subsystem_name": subsystem_name,
-        "members": {},
-        "description": None,
-        "color": "00DE9B"
-    }
-    save_systems()
-    await interaction.response.defer(ephemeral=True)
-    await interaction.followup.send(
-        f"Subsystem **{subsystem_name}** created in side system `{side_id}` with ID `{next_sub_id}`.",
-        ephemeral=True
-    )
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -189,7 +144,67 @@ from config import (
     EXTERNAL_MSG_LIMIT_SECONDS,
     PROFILE_PRIVACY_LEVELS,
 )
+
 from views import GroupOrderView, TagSelect, ConfirmTags, TagView, TagMultiSelect, TagMultiView
+
+# /createsidesubsystem — Create a subsystem within a side system
+@tree.command(name="createsidesubsystem", description="Create a subsystem within a side system")
+async def createsidesubsystem(
+    interaction: discord.Interaction,
+    side_id: str,
+    subsystem_name: str
+):
+    user_id = interaction.user.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+        return
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await interaction.response.send_message("System not found.", ephemeral=True)
+        return
+    side_systems = system.get("side_systems", {})
+    side = side_systems.get(side_id)
+    if not side:
+        await interaction.response.send_message(f"Side system with ID `{side_id}` not found.", ephemeral=True)
+        return
+    subsystems = side.setdefault("subsystems", {})
+    import string
+    def next_subsystem_id(existing):
+        chars = string.ascii_lowercase
+        length = 1
+        while True:
+            for id_tuple in __import__('itertools').product(chars, repeat=length):
+                candidate = ''.join(id_tuple)
+                if candidate not in existing:
+                    return candidate
+            length += 1
+    next_sub_id = next_subsystem_id(subsystems)
+    subsystems[next_sub_id] = {
+        "subsystem_name": subsystem_name,
+        "members": {},
+        "description": None,
+        "color": "00DE9B"
+    }
+    save_systems()
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(
+        f"Subsystem **{subsystem_name}** created in side system `{side_id}` with ID `{next_sub_id}`.",
+        ephemeral=True
+    )
+    next_sub_id = next_subsystem_id(subsystems)
+    subsystems[next_sub_id] = {
+        "subsystem_name": subsystem_name,
+        "members": {},
+        "description": None,
+        "color": "00DE9B"
+    }
+    save_systems()
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(
+        f"Subsystem **{subsystem_name}** created in side system `{side_id}` with ID `{next_sub_id}`.",
+        ephemeral=True
+    )
 
 
 # =============================================
@@ -1223,7 +1238,7 @@ async def editsystemcard(
         )
     await interaction.response.send_message(msg, ephemeral=True)
 
-# /serveridentity — Set server-specific display name, tag, or icon
+# /serveridentity — Set server-specific display name, tag, or icon for this server
 @tree.command(name="serveridentity", description="Set server-specific system tag, display name, or icon for this server")
 async def serveridentity(
     interaction: discord.Interaction,
@@ -2638,9 +2653,7 @@ async def sendexternal(
 
     parsed_target_user_id = parse_discord_user_id(target_user_id)
     if not parsed_target_user_id:
-        await interaction.response.send_message("Invalid target user ID. Use a numeric Discord ID or mention.", ephemeral=True)
-        return
-
+        await interaction
     if str(sender_user_id) == parsed_target_user_id:
         await interaction.response.send_message("Use /messageto for your own system.", ephemeral=True)
         return
