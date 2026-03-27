@@ -1,3 +1,38 @@
+# Cor;createsidesystem — Create a new side system under your main system
+@bot.command(name="createsidesystem", aliases=["css", "addside", "addsideystem"])
+async def createsidesystem_prefix(ctx: commands.Context, name: str = None, side_id: str = None):
+    """Create a new side system. Usage: Cor;createsidesystem <name> [side_id]"""
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+    if not name:
+        await ctx.send("Usage: Cor;createsidesystem <name> [side_id]")
+        return
+    # Ensure side_systems dict exists
+    if "side_systems" not in system or not isinstance(system["side_systems"], dict):
+        system["side_systems"] = {}
+    # Auto-generate side_id if not provided or already exists
+    from helpers import get_next_side_system_id
+    orig_side_id = side_id
+    if not side_id or side_id in system["side_systems"]:
+        side_id = get_next_side_system_id(system)
+    # Ensure uniqueness
+    while side_id in system["side_systems"]:
+        side_id = get_next_side_system_id(system)
+    # Create the side system
+    system["side_systems"][side_id] = {
+        "name": name,
+        "members": {},
+        "subsystems": {}
+    }
+    save_systems()
+    await ctx.send(f"Side system created: **{name}** (ID `{side_id}`){' (requested ID was in use)' if orig_side_id and orig_side_id != side_id else ''}.")
 import discord
 import random
 import re
