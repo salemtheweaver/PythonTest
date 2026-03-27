@@ -116,6 +116,48 @@ from helpers import (
 )
 from views import ConfirmAction, GroupOrderView
 
+# Cor;createsidesubsystem — Create a subsystem within a side system
+@bot.command(name="createsidesubsystem", aliases=["cssubs"])
+async def createsidesubsystem_prefix(ctx: commands.Context, side_id: str = None, *, name: str = None):
+    """Create a subsystem within a side system. Usage: Cor;createsidesubsystem <side_id> <name>"""
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+    if not side_id or not name or not name.strip():
+        await ctx.send("Usage: Cor;createsidesubsystem <side_id> <name>")
+        return
+    side_systems = system.get("side_systems", {})
+    side = side_systems.get(side_id)
+    if not side:
+        await ctx.send(f"Side system with ID `{side_id}` not found.")
+        return
+    subsystems = side.setdefault("subsystems", {})
+    import string
+    def next_subsystem_id(existing):
+        chars = string.ascii_lowercase
+        length = 1
+        while True:
+            for id_tuple in __import__('itertools').product(chars, repeat=length):
+                candidate = ''.join(id_tuple)
+                if candidate not in existing:
+                    return candidate
+            length += 1
+    next_sub_id = next_subsystem_id(subsystems)
+    subsystems[next_sub_id] = {
+        "subsystem_name": name.strip(),
+        "members": {},
+        "description": None,
+        "color": "00DE9B"
+    }
+    save_systems()
+    await ctx.send(f"Subsystem '{name.strip()}' created in side system `{side_id}` with ID `{next_sub_id}`.")
+
 # Cor;createsidesystem — Create a new side system for the user's main system
 @bot.command(name="createsidesystem", aliases=["cssys"])
 async def createsidesystem_prefix(ctx: commands.Context, *, name: str = None):

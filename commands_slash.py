@@ -763,26 +763,41 @@ async def listsubsystems(
         await interaction.response.send_message("You do not have permission to view this subsystem list.", ephemeral=True)
         return
 
-    subsystems = system.get("subsystems", {})
+    main_subsystems = system.get("subsystems", {})
+    side_systems = system.get("side_systems", {})
 
-    if not subsystems:
+    lines = []
+    total_count = 0
+
+    # Main system subsystems
+    for sub_id, sub_data in sorted(main_subsystems.items()):
+        sub_name = sub_data.get("subsystem_name", "Unnamed Subsystem")
+        member_count = len(sub_data.get("members", {}))
+        lines.append(f"**{sub_name}** (`{sub_id}`) — {member_count} members (Main System)")
+        total_count += 1
+
+    # Side system subsystems
+    for side_id, side in sorted(side_systems.items()):
+        side_name = side.get("side_system_name", side_id)
+        subsystems = side.get("subsystems", {})
+        for sub_id, sub_data in sorted(subsystems.items()):
+            sub_name = sub_data.get("subsystem_name", "Unnamed Subsystem")
+            member_count = len(sub_data.get("members", {}))
+            lines.append(f"**{sub_name}** (`{sub_id}`) — {member_count} members (Side System: {side_name})")
+            total_count += 1
+
+    if not lines:
         if str(target_owner_id) == str(requester_id):
             await interaction.response.send_message("You have no subsystems yet. Use /createsubsystem to add one.", ephemeral=True)
         else:
             await interaction.response.send_message("This system has no subsystems.", ephemeral=True)
         return
 
-    lines = []
-    for sub_id, sub_data in sorted(subsystems.items()):
-        sub_name = sub_data.get("subsystem_name", "Unnamed Subsystem")
-        member_count = len(sub_data.get("members", {}))
-        lines.append(f"**{sub_name}** (`{sub_id}`) — {member_count} members")
-
     view = cv2_simple(
         f"{system.get('system_name', 'System')} Subsystems",
         "\n".join(lines),
         color="5865F2",
-        footer=f"Total subsystems: {len(subsystems)}",
+        footer=f"Total subsystems: {total_count}",
     )
     await interaction.response.send_message(view=view, ephemeral=not show_to_others)
 
