@@ -116,6 +116,37 @@ from helpers import (
 )
 from views import ConfirmAction, GroupOrderView
 
+# Cor;createsidesystem — Create a new side system for the user's main system
+@bot.command(name="createsidesystem", aliases=["cssys"])
+async def createsidesystem_prefix(ctx: commands.Context, *, name: str = None):
+    """Create a new side system. Usage: Cor;createsidesystem <name>"""
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+    if not name or not name.strip():
+        await ctx.send("Usage: Cor;createsidesystem <name>")
+        return
+    from helpers import get_next_side_system_id
+    side_id = get_next_side_system_id(system)
+    if "side_systems" not in system:
+        system["side_systems"] = {}
+    if side_id in system["side_systems"]:
+        await ctx.send(f"Side system ID '{side_id}' already exists. Try again.")
+        return
+    system["side_systems"][side_id] = {
+        "name": name.strip(),
+        "members": {},
+        "subsystems": {}
+    }
+    save_systems()
+    await ctx.send(f"Created side system '{name.strip()}' with ID `{side_id}`.")
+
 # Cor;removemembers — Remove multiple members by IDs (bulk)
 @bot.command(name="removemembers")
 async def removemembers_prefix(ctx: commands.Context, *args):
