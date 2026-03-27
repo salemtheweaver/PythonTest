@@ -2889,20 +2889,30 @@ async def listsubsystems_prefix(ctx: commands.Context, target_user_id: str = Non
         await ctx.send("You do not have permission to view this subsystem list.")
         return
 
-    subsystems = system.get("subsystems", {})
 
-    if not subsystems:
+    # Aggregate all subsystems: main and side systems
+    lines = []
+    # Main system subsystems
+    main_subsystems = system.get("subsystems", {})
+    for sub_id, sub_data in sorted(main_subsystems.items()):
+        sub_name = sub_data.get("subsystem_name", "Unnamed Subsystem")
+        member_count = len(sub_data.get("members", {}))
+        lines.append(f"ID `{sub_id}` - {sub_name} ({member_count} members) [main system]")
+
+    # Side system subsystems
+    for side_id, side in (system.get("side_systems", {}) or {}).items():
+        side_subsystems = side.get("subsystems", {})
+        for sub_id, sub_data in sorted(side_subsystems.items()):
+            sub_name = sub_data.get("subsystem_name", "Unnamed Subsystem")
+            member_count = len(sub_data.get("members", {}))
+            lines.append(f"ID `{sub_id}` - {sub_name} ({member_count} members) [side `{side_id}`]")
+
+    if not lines:
         if str(target_owner_id) == str(requester_id):
             await ctx.send("You have no subsystems yet. Use /createsubsystem to add one.")
         else:
             await ctx.send("This system has no subsystems.")
         return
-
-    lines = []
-    for sub_id, sub_data in sorted(subsystems.items()):
-        sub_name = sub_data.get("subsystem_name", "Unnamed Subsystem")
-        member_count = len(sub_data.get("members", {}))
-        lines.append(f"ID `{sub_id}` - {sub_name} ({member_count} members)")
 
     await ctx.send(view=cv2_simple(
         f"{system.get('system_name', 'System')} Subsystems",
