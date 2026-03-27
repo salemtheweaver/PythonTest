@@ -119,7 +119,7 @@ from views import ConfirmAction, GroupOrderView
 # Cor;removemembers — Remove multiple members by IDs (bulk)
 @bot.command(name="removemembers")
 async def removemembers_prefix(ctx: commands.Context, *args):
-    """Remove multiple members by IDs. Usage: Cor;removemembers <member_id1> <member_id2> ... [subsystem_id]"""
+    """Remove multiple members by IDs. Usage: Cor;removemembers <member_id1> <member_id2> ... [side_id] [subsystem_id]"""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -130,18 +130,27 @@ async def removemembers_prefix(ctx: commands.Context, *args):
         await ctx.send("System not found.")
         return
     if not args or len(args) < 1:
-        await ctx.send("Usage: Cor;removemembers <member_id1> <member_id2> ... [subsystem_id]")
+        await ctx.send("Usage: Cor;removemembers <member_id1> <member_id2> ... [side_id] [subsystem_id]")
         return
-    # Check if last arg is a valid subsystem_id
-    possible_subsystem_id = args[-1]
-    members_dict = get_system_members(system_id, possible_subsystem_id)
-    if members_dict is not None and possible_subsystem_id in system.get("subsystems", {}):
-        subsystem_id = possible_subsystem_id
-        member_ids = args[:-1]
-    else:
-        subsystem_id = None
-        members_dict = get_system_members(system_id, None)
-        member_ids = args
+    # Parse for side_id and subsystem_id (if present)
+    side_id = None
+    subsystem_id = None
+    member_ids = list(args)
+    # Check for subsystem_id and side_id at the end
+    if len(member_ids) >= 2 and member_ids[-2] in system.get("sidesystems", {}):
+        side_id = member_ids[-2]
+        if member_ids[-1] in system.get("subsystems", {}):
+            subsystem_id = member_ids[-1]
+            member_ids = member_ids[:-2]
+        else:
+            member_ids = member_ids[:-1]
+    elif member_ids[-1] in system.get("sidesystems", {}):
+        side_id = member_ids[-1]
+        member_ids = member_ids[:-1]
+    elif member_ids[-1] in system.get("subsystems", {}):
+        subsystem_id = member_ids[-1]
+        member_ids = member_ids[:-1]
+    members_dict = get_system_members(system_id, side_id, subsystem_id)
     if not member_ids:
         await ctx.send("No member IDs provided.")
         return
@@ -170,8 +179,9 @@ async def removemembers_prefix(ctx: commands.Context, *args):
     if not found:
         await ctx.send(f"No valid members found to remove. Not found: {', '.join(not_found)}.")
         return
+    scope_label = get_scope_label(side_id, subsystem_id)
     confirm_msg = (
-        f"Are you sure you want to remove the following members?\n\n"
+        f"Are you sure you want to remove the following members from {scope_label}?\n\n"
         + "\n".join(found)
     )
     if not_found:
@@ -746,6 +756,18 @@ async def importsystem_prefix(ctx: commands.Context):
     except Exception:
         await ctx.send("Failed to read or parse the import file. Make sure it's a valid JSON export.")
         return
+    # Assign side system IDs if missing or blank
+    from helpers import get_next_side_system_id
+    if "side_systems" in import_data:
+        new_side_systems = {}
+        for orig_side_id, side in import_data["side_systems"].items():
+            side_id = orig_side_id or None
+            if not side_id or str(side_id).strip() == "":
+                side_id = get_next_side_system_id(import_data)
+            while side_id in new_side_systems:
+                side_id = get_next_side_system_id(import_data)
+            new_side_systems[side_id] = side
+        import_data["side_systems"] = new_side_systems
     import_data["owner_id"] = str(user_id)
     import_data.pop("original_owner_id", None)
     import_data.pop("exported_at", None)
@@ -1197,12 +1219,13 @@ async def switchmember_prefix(ctx: commands.Context, member_id: str, subsystem_i
 async def cofrontmember_prefix(
     ctx: commands.Context,
     member_id: str = None,
+    side_id: str = None,
     subsystem_id: str = None,
     *,
     cofront_member_ids: str = None,
 ):
     if not member_id:
-        await ctx.send("Usage: Cor;cofrontmember <member_id_or_name> [subsystem_id] [cofront_ids_or_names]")
+        await ctx.send("Usage: Cor;cofrontmember <member_id_or_name> [side_id] [subsystem_id] [cofront_ids_or_names]")
         return
 
     user_id = ctx.author.id
@@ -1211,16 +1234,19 @@ async def cofrontmember_prefix(
         await ctx.send("You must register a main system first using /register.")
         return
 
-    # Support shorthand: Cor;cofrontmember <member_id> <cofront_ids>
-    # If second arg is not a valid scope, treat it as co-front IDs in main scope.
-    members = get_system_members(system_id, subsystem_id)
+    system = systems_data.get("systems", {}).get(system_id, {})
+    # If subsystem_id is a valid side_id, treat as side_id
+    if subsystem_id and subsystem_id in system.get("sidesystems", {}):
+        side_id = subsystem_id
+        subsystem_id = None
+    members = get_system_members(system_id, side_id, subsystem_id)
     if members is None and subsystem_id and not cofront_member_ids:
         cofront_member_ids = subsystem_id
         subsystem_id = None
-        members = get_system_members(system_id, subsystem_id)
+        members = get_system_members(system_id, side_id, subsystem_id)
 
     if members is None:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(side_id, subsystem_id)}.")
         return
 
     resolved_member_id, resolved_member, resolve_error = resolve_member_identifier(members, member_id)
@@ -1257,7 +1283,7 @@ async def cofrontmember_prefix(
 
     co_names = ", ".join([members.get(c, {}).get("name", str(c)) for c in selected_cofronts]) if selected_cofronts else "None"
     await ctx.send(
-        f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting with co-fronts: {co_names} in {get_scope_label(subsystem_id)}."
+        f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting with co-fronts: {co_names} in {get_scope_label(side_id, subsystem_id)}."
     )
 
 
@@ -1419,15 +1445,24 @@ async def autoproxystatus_prefix(ctx: commands.Context):
 # Cor;members — List system members with pagination and front status
 @bot.command(name="members", aliases=["mem"])
 async def members_prefix(ctx: commands.Context, scope: str = "main", page: int = 1, target_user_id: str = None):
-    print("[DEBUG] members_prefix called")
     requester_id = ctx.author.id
-    print(f"[DEBUG] requester_id: {requester_id}, target_user_id: {target_user_id}")
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
-    print(f"[DEBUG] resolve_target_system_for_view: system_id={system_id}, error={error}")
     if error:
         await ctx.send(error)
-        print(f"[DEBUG] Exiting: {error}")
         return
+
+    # Parse for side_id and subsystem_id if present in scope (e.g., "side:foo", "sub:bar")
+    side_id = None
+    subsystem_id = None
+    scope_lower = (scope or "main").strip().lower()
+    if scope_lower.startswith("side:"):
+        side_id = scope_lower[5:]
+        scope_label = get_scope_label(side_id, None)
+    elif scope_lower.startswith("sub:"):
+        subsystem_id = scope_lower[4:]
+        scope_label = get_scope_label(None, subsystem_id)
+    else:
+        scope_label = get_scope_label(None, None)
 
     # Determine viewer access level
     viewer_id = str(requester_id)
@@ -1439,13 +1474,11 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         settings = get_external_settings(system)
         trusted = set(str(uid) for uid in settings.get("trusted_users", []))
         friends = set(str(uid) for uid in settings.get("friend_users", []))
-        print(f"[DEBUG] trusted={trusted}, friends={friends}, viewer_id={viewer_id}")
         if viewer_id in trusted:
             access_levels = {"public", "friends", "trusted"}
         elif viewer_id in friends:
             access_levels = {"public", "friends"}
 
-    scope_lower = (scope or "main").strip().lower()
     def is_tracked(member):
         return not member.get("untracked", False)
 
@@ -1518,11 +1551,17 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
         page_members = member_rows[start_idx:end_idx]
 
         containers = []
-        for scope_id, member_id, member, subsystem_name in page_members[:5]:
-            # Pass subsystem_name to the card builder if needed, or add to footer/title
-            container = build_member_profile_cv2(member, system=scoped_members_lookup.get(scope_id, system))
-            # Optionally, you can add the subsystem name to the container here if you want it visible
-            container.add_item(discord.ui.TextDisplay(f"-# Subsystem: {subsystem_name}"))
+        for scope_id, member_id, member, subsystem_name in page_members:
+            # Minimal display: member name, member ID, and scope
+            accent = _cv2_color(member.get("color"))
+            container = discord.ui.Container(accent_colour=accent)
+            container.add_item(discord.ui.TextDisplay(f"### {member.get('name', 'Unnamed')}"))
+            # Scope label
+            from helpers import get_scope_label
+            scope_label = get_scope_label(scope_id, None)
+            container.add_item(discord.ui.TextDisplay(f"**Scope:** {scope_label}"))
+            # Member ID
+            container.add_item(discord.ui.TextDisplay(f"**Member ID:** {member_id}"))
             containers.append(container)
         if not containers:
             empty = discord.ui.Container(accent_colour=_cv2_color("00FF00"))
@@ -1615,7 +1654,7 @@ async def toggle_untracked_prefix(ctx: commands.Context, member_id: str = None, 
 @bot.command(name="viewmember", aliases=["vm"])
 async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None, target_user_id: str = None):
     if not member_id:
-        await ctx.send("Usage: Cor;viewmember <member_id or name> [subsystem_id] [target_user_id]")
+        await ctx.send("Usage: Cor;viewmember <member_id or name> [side_id] [subsystem_id] [target_user_id]")
         return
 
     requester_id = ctx.author.id
@@ -1624,32 +1663,42 @@ async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsys
         await ctx.send(error)
         return
 
+    # Parse for side_id and subsystem_id if present in args (assume after member_id)
+    # This assumes the command is called as: Cor;viewmember <member_id> [side_id] [subsystem_id] [target_user_id]
+    # If you want to support this, you may need to parse ctx.message.content or update the command signature
+    # For now, try to get side_id and subsystem_id from the arguments if possible
+    # (If you want to support this more robustly, consider refactoring argument parsing for all prefix commands)
+    side_id = None
+    # If subsystem_id is a valid side_id, treat as side_id
+    if subsystem_id and subsystem_id in system.get("sidesystems", {}):
+        side_id = subsystem_id
+        subsystem_id = None
+
     target_scope_id, members_dict, resolved_member_id, member, resolve_error = \
-        resolve_member_identifier_in_system(system, member_id, subsystem_id=subsystem_id)
+        resolve_member_identifier_in_system(system, member_id, side_id=side_id, subsystem_id=subsystem_id)
     if resolve_error:
-       
+        await ctx.send(resolve_error)
         return
 
     if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
         await ctx.send("You do not have permission to view this member card.")
         return
 
-    await ctx.send(view=cv2_view(build_member_profile_cv2(member, system=system)))
+    await ctx.send(view=cv2_view(build_member_profile_cv2(member, system=system, side_id=side_id, subsystem_id=subsystem_id)))
 
 
 # Cor;random — Show a random member, optionally filtered by privacy pool
 @bot.command(name="random")
-async def random_prefix(ctx: commands.Context, arg1: str = None, arg2: str = None):
+async def random_prefix(ctx: commands.Context, pool: str = None, side_id: str = None, subsystem_id: str = None):
     valid_pools = {"public", "friends", "trusted", "all"}
 
     selected_pool = "all"
-
-    if arg1:
-        arg1_clean = str(arg1).strip().lower()
-        if arg1_clean in valid_pools:
-            selected_pool = arg1_clean
+    if pool:
+        pool_clean = str(pool).strip().lower()
+        if pool_clean in valid_pools:
+            selected_pool = pool_clean
         else:
-            await ctx.send("Usage: Cor;random [public|friends|trusted|all]")
+            await ctx.send("Usage: Cor;random [public|friends|trusted|all] [side_id] [subsystem_id]")
             return
 
     requester_id = ctx.author.id
@@ -1663,11 +1712,12 @@ async def random_prefix(ctx: commands.Context, arg1: str = None, arg2: str = Non
         return
 
     candidates = []
-    for scope_id, members_dict in iter_system_member_dicts(system):
+    members_dict = get_system_members(system_id, side_id, subsystem_id)
+    if members_dict:
         for member in members_dict.values():
             if selected_pool != "all" and get_member_privacy_level(member) != selected_pool:
                 continue
-            candidates.append((scope_id, member))
+            candidates.append(member)
 
     if not candidates:
         if selected_pool == "all":
@@ -1676,8 +1726,8 @@ async def random_prefix(ctx: commands.Context, arg1: str = None, arg2: str = Non
             await ctx.send(f"You do not have any members in the `{selected_pool}` privacy pool.")
         return
 
-    scope_id, member = random.choice(candidates)
-    scope_label = get_scope_label(scope_id)
+    member = random.choice(candidates)
+    scope_label = get_scope_label(side_id, subsystem_id)
     pool_label = "all visible" if selected_pool == "all" else selected_pool
     await ctx.send(
         content=f"Random {pool_label} member from {scope_label}:",
@@ -1687,9 +1737,9 @@ async def random_prefix(ctx: commands.Context, arg1: str = None, arg2: str = Non
 
 # Cor;editmemberimages — Update member profile pic/banner via attachments
 @bot.command(name="editmemberimages", aliases=["emi"])
-async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None):
+async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, side_id: str = None, subsystem_id: str = None):
     if not member_id:
-        await ctx.send("Usage: Cor;editmemberimages <member_id> [subsystem_id] (attach 1-2 image files)")
+        await ctx.send("Usage: Cor;editmemberimages <member_id> [side_id] [subsystem_id] (attach 1-2 image files)")
         return
 
     user_id = ctx.author.id
@@ -1698,9 +1748,9 @@ async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, 
         await ctx.send("You must register using /register.")
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, side_id, subsystem_id)
     if members_dict is None or member_id not in members_dict:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(side_id, subsystem_id)}.")
         return
 
     attachments = list(ctx.message.attachments or [])
@@ -1742,15 +1792,15 @@ async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, 
 
     save_systems()
     await ctx.send(
-        f"Updated **{', '.join(updated)}** for **{member.get('name', member_id)}** in {get_scope_label(subsystem_id)}."
+        f"Updated **{', '.join(updated)}** for **{member.get('name', member_id)}** in {get_scope_label(side_id, subsystem_id)}."
     )
 
 
 # Cor;memberimagedebug — Debug member image URLs and normalization
 @bot.command(name="memberimagedebug", aliases=["midbg"])
-async def memberimagedebug_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None, target_user_id: str = None):
+async def memberimagedebug_prefix(ctx: commands.Context, member_id: str = None, side_id: str = None, subsystem_id: str = None, target_user_id: str = None):
     if not member_id:
-        await ctx.send("Usage: Cor;memberimagedebug <member_id> [subsystem_id] [target_user_id]")
+        await ctx.send("Usage: Cor;memberimagedebug <member_id> [side_id] [subsystem_id] [target_user_id]")
         return
 
     requester_id = ctx.author.id
@@ -1759,9 +1809,9 @@ async def memberimagedebug_prefix(ctx: commands.Context, member_id: str = None, 
         await ctx.send(error)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, side_id, subsystem_id)
     if members_dict is None or member_id not in members_dict:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(side_id, subsystem_id)}.")
         return
 
     member = members_dict[member_id]
@@ -1776,7 +1826,7 @@ async def memberimagedebug_prefix(ctx: commands.Context, member_id: str = None, 
 
     lines = [
         f"Member: **{member.get('name', member_id)}** (`{member_id}`)",
-        f"Scope: {get_scope_label(subsystem_id)}",
+        f"Scope: {get_scope_label(side_id, subsystem_id)}",
         f"Raw profile_pic set: {'yes' if raw_pic.strip() else 'no'}",
         f"Raw banner set: {'yes' if raw_banner.strip() else 'no'}",
         f"Normalized profile_pic valid: {'yes' if norm_pic else 'no'}",
@@ -1797,10 +1847,11 @@ async def editmembertag_prefix(
     ctx: commands.Context,
     member_id: str = None,
     proxy_format: str = None,
+    side_id: str = None,
     subsystem_id: str = None,
 ):
     if not member_id or proxy_format is None:
-        await ctx.send("Usage: Cor;editmembertag <member_id> <format_with_text|clear> [subsystem_id]")
+        await ctx.send("Usage: Cor;editmembertag <member_id> <format_with_text|clear> [side_id] [subsystem_id]")
         return
 
     user_id = ctx.author.id
@@ -1809,9 +1860,9 @@ async def editmembertag_prefix(
         await ctx.send("You must register a main system first using /register.")
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, side_id, subsystem_id)
     if members_dict is None or member_id not in members_dict:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(side_id, subsystem_id)}.")
         return
 
     member = members_dict[member_id]
@@ -1819,7 +1870,7 @@ async def editmembertag_prefix(
     if raw.lower() in {"clear", "none", "null", "off", "-"}:
         set_member_proxy_formats(member, [])
         save_systems()
-        await ctx.send(f"Cleared proxy tag for **{member.get('name', member_id)}** in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Cleared proxy tag for **{member.get('name', member_id)}** in {get_scope_label(side_id, subsystem_id)}.")
         return
 
     prefix, suffix, err = parse_proxy_format_with_placeholder(raw)
@@ -1839,7 +1890,7 @@ async def editmembertag_prefix(
     set_member_proxy_formats(member, [{"prefix": prefix, "suffix": suffix}])
     save_systems()
     await ctx.send(
-        f"Set proxy tag for **{member.get('name', member_id)}** in {get_scope_label(subsystem_id)} to {render_member_proxy_result(member)}."
+        f"Set proxy tag for **{member.get('name', member_id)}** in {get_scope_label(side_id, subsystem_id)} to {render_member_proxy_result(member)}."
     )
 
 
@@ -1849,10 +1900,11 @@ async def addmembertag_prefix(
     ctx: commands.Context,
     member_id: str = None,
     proxy_format: str = None,
+    side_id: str = None,
     subsystem_id: str = None,
 ):
     if not member_id or proxy_format is None:
-        await ctx.send("Usage: Cor;addmembertag <member_id> <format_with_text> [subsystem_id]")
+        await ctx.send("Usage: Cor;addmembertag <member_id> <format_with_text> [side_id] [subsystem_id]")
         return
 
     user_id = ctx.author.id
@@ -1861,9 +1913,9 @@ async def addmembertag_prefix(
         await ctx.send("You must register a main system first using /register.")
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, side_id, subsystem_id)
     if members_dict is None or member_id not in members_dict:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(side_id, subsystem_id)}.")
         return
 
     prefix, suffix, err = parse_proxy_format_with_placeholder(proxy_format.strip())
@@ -1887,7 +1939,7 @@ async def addmembertag_prefix(
 
     save_systems()
     await ctx.send(
-        f"Added proxy format for **{member.get('name', member_id)}** in {get_scope_label(subsystem_id)}.\nCurrent formats: {render_member_proxy_format(member)}"
+        f"Added proxy format for **{member.get('name', member_id)}** in {get_scope_label(side_id, subsystem_id)}.\nCurrent formats: {render_member_proxy_format(member)}"
     )
 
 
@@ -1897,10 +1949,11 @@ async def removemembertag_prefix(
     ctx: commands.Context,
     member_id: str = None,
     proxy_format: str = None,
+    side_id: str = None,
     subsystem_id: str = None,
 ):
     if not member_id or proxy_format is None:
-        await ctx.send("Usage: Cor;removemembertag <member_id> <format_with_text> [subsystem_id]")
+        await ctx.send("Usage: Cor;removemembertag <member_id> <format_with_text> [side_id] [subsystem_id]")
         return
 
     user_id = ctx.author.id
@@ -1909,9 +1962,9 @@ async def removemembertag_prefix(
         await ctx.send("You must register a main system first using /register.")
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, side_id, subsystem_id)
     if members_dict is None or member_id not in members_dict:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(side_id, subsystem_id)}.")
         return
 
     prefix, suffix, err = parse_proxy_format_with_placeholder(proxy_format.strip())
@@ -1935,7 +1988,7 @@ async def removemembertag_prefix(
 
     save_systems()
     await ctx.send(
-        f"Removed proxy format for **{member.get('name', member_id)}** in {get_scope_label(subsystem_id)}.\nCurrent formats: {render_member_proxy_format(member)}"
+        f"Removed proxy format for **{member.get('name', member_id)}** in {get_scope_label(side_id, subsystem_id)}.\nCurrent formats: {render_member_proxy_format(member)}"
     )
 
 
@@ -1944,8 +1997,10 @@ async def removemembertag_prefix(
 async def movemember_prefix(
     ctx: commands.Context,
     member_id: str,
-    to_scope: str,
-    from_scope: str = None,
+    to_side_id: str = None,
+    to_subsystem_id: str = None,
+    from_side_id: str = None,
+    from_subsystem_id: str = None,
 ):
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
@@ -1953,21 +2008,12 @@ async def movemember_prefix(
         await ctx.send("You must register a main system first using /register.")
         return
 
-    to_clean = (to_scope or "").strip().lower()
-    if to_clean in {"main", "none", "-"}:
-        to_subsystem_id = None
-    else:
-        to_subsystem_id = to_scope
-
-    from_subsystem_id = None
-    if from_scope is not None:
-        from_clean = from_scope.strip().lower()
-        from_subsystem_id = None if from_clean in {"main", "none", "-"} else from_scope
-
     ok, message, old_scope, new_scope = move_member_between_scopes(
         system_id,
         member_id,
+        to_side_id=to_side_id,
         to_subsystem_id=to_subsystem_id,
+        from_side_id=from_side_id,
         from_subsystem_id=from_subsystem_id,
     )
     if not ok:
@@ -2288,19 +2334,19 @@ async def addmembergroup_prefix(ctx: commands.Context, member_id: str, group_id:
 
 # Cor;removemembergroup — Remove a member from a group
 @bot.command(name="removemembergroup", aliases=["rmg"])
-async def removemembergroup_prefix(ctx: commands.Context, member_id: str, group_id: str, subsystem_id: str = None):
+async def removemembergroup_prefix(ctx: commands.Context, member_id: str, group_id: str, side_id: str = None, subsystem_id: str = None):
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await ctx.send("You must register using /register.")
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, side_id, subsystem_id)
     if members_dict is None:
-        await ctx.send("Subsystem not found.")
+        await ctx.send("Scope not found.")
         return
     if member_id not in members_dict:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(side_id, subsystem_id)}.")
         return
 
     member = members_dict[member_id]
@@ -2317,7 +2363,7 @@ async def removemembergroup_prefix(ctx: commands.Context, member_id: str, group_
 
 # Cor;membergroups — Show which groups a member belongs to
 @bot.command(name="membergroups", aliases=["mg"])
-async def membergroups_prefix(ctx: commands.Context, member_id: str, subsystem_id: str = None):
+async def membergroups_prefix(ctx: commands.Context, member_id: str, side_id: str = None, subsystem_id: str = None):
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2325,12 +2371,12 @@ async def membergroups_prefix(ctx: commands.Context, member_id: str, subsystem_i
         return
 
     system = systems_data.get("systems", {}).get(system_id)
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, side_id, subsystem_id)
     if members_dict is None:
-        await ctx.send("Subsystem not found.")
+        await ctx.send("Scope not found.")
         return
     if member_id not in members_dict:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(side_id, subsystem_id)}.")
         return
 
     member = members_dict[member_id]
@@ -2343,9 +2389,9 @@ async def membergroups_prefix(ctx: commands.Context, member_id: str, subsystem_i
 
 # Cor;searchmember — Search members by name or tag
 @bot.command(name="searchmember", aliases=["srm"])
-async def searchmember_prefix(ctx: commands.Context, query: str = None, subsystem_id: str = None):
+async def searchmember_prefix(ctx: commands.Context, query: str = None, side_id: str = None, subsystem_id: str = None):
     if not query:
-        await ctx.send("Usage: Cor;searchmember <query> [subsystem_id]")
+        await ctx.send("Usage: Cor;searchmember <query> [side_id] [subsystem_id]")
         return
 
     user_id = ctx.author.id
@@ -2359,8 +2405,7 @@ async def searchmember_prefix(ctx: commands.Context, query: str = None, subsyste
         await ctx.send("System not found.")
         return
 
-    scope_token = (subsystem_id or "").strip().lower()
-    search_all_scopes = scope_token == "all"
+    search_all_scopes = (side_id or subsystem_id or "").strip().lower() == "all"
 
     if search_all_scopes:
         member_rows = []
@@ -2368,11 +2413,11 @@ async def searchmember_prefix(ctx: commands.Context, query: str = None, subsyste
             for member in scoped_members.values():
                 member_rows.append((scope_id, member))
     else:
-        members_dict = get_system_members(system_id, subsystem_id)
+        members_dict = get_system_members(system_id, side_id, subsystem_id)
         if members_dict is None:
-            await ctx.send("Subsystem not found.")
+            await ctx.send("Scope not found.")
             return
-        member_rows = [(subsystem_id, member) for member in members_dict.values()]
+        member_rows = [(f"{side_id or ''}:{subsystem_id or ''}", member) for member in members_dict.values()]
 
     query_lower = query.strip().lower()
     if not query_lower:
