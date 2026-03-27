@@ -444,6 +444,8 @@ async def register(
 
     await interaction.response.defer(ephemeral=True)
 
+    await interaction.response.defer(ephemeral=True)
+
     # Find next system id
     next_id = str(max([int(sid) for sid in systems_data["systems"].keys()] or [0]) + 1)
     systems_data["systems"][next_id] = {
@@ -550,7 +552,8 @@ async def createsubsystem(
         "color": "00DE9B"
     }
     save_systems()
-    await interaction.response.send_message(
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(
         f"Subsystem **{subsystem_name}** created with ID `{next_sub_id}`.",
         ephemeral=True
     )
@@ -1501,12 +1504,13 @@ async def addmember(
     if side_id:
         side = get_side_system(system, side_id)
         if not side:
+    await interaction.response.defer(ephemeral=True)
             await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
             return
         if subsystem_id:
             subs = side.get("subsystems", {})
             if subsystem_id not in subs:
-                await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
+    await interaction.followup.send(
                 return
             members = subs[subsystem_id]["members"]
         else:
@@ -1659,6 +1663,8 @@ async def importpluralkit(
     if members is None:
         await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
         return
+
+    await interaction.response.defer(ephemeral=True)
 
     await interaction.response.defer(ephemeral=True)
 
@@ -1864,6 +1870,7 @@ async def messageto(interaction: discord.Interaction, member_id: str, message: s
     # Find who is currently fronting to use as sender
     sender_names = [m["name"] for m in members_dict.values() if m.get("current_front")]
     sender = ", ".join(sender_names) if sender_names else "Unknown"
+    await interaction.response.defer(ephemeral=True)
 
     # Add message to the member's inbox
     members_dict[member_id].setdefault("inbox", [])
@@ -1900,7 +1907,8 @@ async def allowexternal(interaction: discord.Interaction, enabled: bool):
     settings["accept"] = enabled
     save_systems()
     status = "enabled" if enabled else "disabled"
-    await interaction.response.send_message(f"External messages are now **{status}**.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(f"External messages are now **{status}**.", ephemeral=True)
 
 # /externalprivacy — Set delivery mode for external inbox messages
 @tree.command(name="externalprivacy", description="Set how external inbox messages are shown when switching")
@@ -2322,7 +2330,8 @@ async def externalretention(interaction: discord.Interaction, days: int):
     settings = get_external_settings(system)
     settings["inbox_retention_days"] = days
     save_systems()
-    await interaction.response.send_message(f"External retention set to {days} day(s).", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(f"External retention set to {days} day(s).", ephemeral=True)
 
 # /reportexternal — Report an external sender for abuse
 @tree.command(name="reportexternal", description="Report abuse from an external sender")
@@ -2492,7 +2501,8 @@ async def blockuser(interaction: discord.Interaction, user_id: str):
     blocked.append(parsed_user_id)
     settings["blocked_users"] = blocked
     save_systems()
-    await interaction.response.send_message(f"Blocked user ID `{parsed_user_id}`.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(f"Blocked user ID `{parsed_user_id}`.", ephemeral=True)
 
 # /unblockuser — Remove a user from the external messages block list
 @tree.command(name="unblockuser", description="Unblock a Discord user for external messages")
@@ -2522,7 +2532,8 @@ async def unblockuser(interaction: discord.Interaction, user_id: str):
     blocked.remove(parsed_user_id)
     settings["blocked_users"] = blocked
     save_systems()
-    await interaction.response.send_message(f"Unblocked user ID `{parsed_user_id}`.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
+    await interaction.followup.send(f"Unblocked user ID `{parsed_user_id}`.", ephemeral=True)
 
 async def blockedusers(interaction: discord.Interaction):
     user_id = interaction.user.id
@@ -2990,6 +3001,7 @@ async def frontreminders(interaction: discord.Interaction, enabled: bool):
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
+    await interaction.response.defer(ephemeral=True)
         return
 
     system = systems_data["systems"].get(system_id)
@@ -4063,9 +4075,11 @@ async def viewmember(
         if not side:
             await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
             return
+    await interaction.response.defer(ephemeral=True)
         if subsystem_id:
             subs = side.get("subsystems", {})
             if subsystem_id not in subs:
+    await interaction.response.defer(ephemeral=True)
                 await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
                 return
             members_dict = subs[subsystem_id]["members"]
