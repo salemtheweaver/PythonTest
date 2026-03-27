@@ -1548,7 +1548,7 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
     def get_containers(page_num):
         start_idx = (page_num - 1) * members_per_page
         end_idx = start_idx + members_per_page
-        page_members = member_rows[start_idx:end_idx]
+        page_members = member_rows[start_idx:end_idx][:10]
 
         containers = []
         for scope_id, member_id, member, subsystem_name in page_members:
