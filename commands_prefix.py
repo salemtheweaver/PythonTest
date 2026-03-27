@@ -1541,7 +1541,7 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
     sort_mode = get_member_sort_mode(system)
     member_rows = sort_member_rows(member_rows, sort_mode)
 
-    members_per_page = 15
+    members_per_page = 10
     total_pages = (len(member_rows) - 1) // members_per_page + 1 if member_rows else 1
     start_page = max(1, min(page, total_pages))
 
