@@ -117,6 +117,48 @@ from helpers import (
 from views import ConfirmAction, GroupOrderView
 
 # Cor;createsidesubsystem — Create a subsystem within a side system
+@bot.command(name="deletesubsystem", aliases=["delsubsys"])
+async def deletesubsystem_prefix(ctx: commands.Context, subsystem_id: str = None, side_id: str = None):
+    """Delete a subsystem from the main system or a side system. Usage: Cor;deletesubsystem <subsystem_id> [side_id]"""
+    user_id = ctx.author.id
+    system_id = get_user_system_id(user_id)
+    if not system_id:
+        await ctx.send("You must register a main system first using /register.")
+        return
+    system = systems_data["systems"].get(system_id)
+    if not system:
+        await ctx.send("System not found.")
+        return
+    if not subsystem_id:
+        await ctx.send("Usage: Cor;deletesubsystem <subsystem_id> [side_id]")
+        return
+    # Determine target: main system or side system
+    if side_id:
+        side_systems = system.get("side_systems", {})
+        side = side_systems.get(side_id)
+        if not side:
+            await ctx.send(f"Side system with ID `{side_id}` not found.")
+            return
+        subsystems = side.get("subsystems", {})
+        if subsystem_id not in subsystems:
+            await ctx.send(f"Subsystem with ID `{subsystem_id}` not found in side system `{side_id}`.")
+            return
+        # Confirm deletion
+        async def do_delete(interaction):
+            del subsystems[subsystem_id]
+            save_systems()
+            await interaction.response.edit_message(content=f"Deleted subsystem `{subsystem_id}` from side system `{side_id}`.", view=None)
+        await ctx.send(f"Are you sure you want to delete subsystem `{subsystem_id}` from side system `{side_id}`? This will remove all its members.", view=ConfirmAction(do_delete))
+    else:
+        subsystems = system.get("subsystems", {})
+        if subsystem_id not in subsystems:
+            await ctx.send(f"Subsystem with ID `{subsystem_id}` not found in main system.")
+            return
+        async def do_delete(interaction):
+            del subsystems[subsystem_id]
+            save_systems()
+            await interaction.response.edit_message(content=f"Deleted subsystem `{subsystem_id}` from main system.", view=None)
+        await ctx.send(f"Are you sure you want to delete subsystem `{subsystem_id}` from the main system? This will remove all its members.", view=ConfirmAction(do_delete))
 @bot.command(name="createsidesubsystem", aliases=["cssubs"])
 async def createsidesubsystem_prefix(ctx: commands.Context, side_id: str = None, *, name: str = None):
     """Create a subsystem within a side system. Usage: Cor;createsidesubsystem <side_id> <name>"""
@@ -438,7 +480,8 @@ async def help_prefix(ctx: commands.Context):
                 "• Cor;viewsubsystemcard (`vssc`) <subsystem_id> [target_user_id]\n"
                 "• Cor;editsystemcard <fields...>\n"
                 "• Cor;editsubsystemcard (`esc`) <subsystem_id> [description|color|set_pic|set_banner|clear_pic|clear_banner]\n"
-                "• Cor;listsubsystems (`lss`) [target_user_id]"
+                "• Cor;listsubsystems (`lss`) [target_user_id]\n"
+                "• Cor;deletesubsystem (`delsubsys`) <subsystem_id> [side_id] — Delete a subsystem from main or side system"
             ),
             "color": discord.Color.blurple(),
         },
