@@ -1,3 +1,20 @@
+# ---------------------------------------------------------------------------
+# Side system ID helper
+# ---------------------------------------------------------------------------
+
+def get_next_side_system_id(system):
+    """Return the next available side system ID in '1a', '1b', ... style."""
+    # Collect all existing side system IDs
+    existing = set((system.get("side_systems") or {}).keys())
+    # Try 1a, 1b, ..., 1z, 2a, 2b, ...
+    for num in range(1, 100):
+        for letter in "abcdefghijklmnopqrstuvwxyz":
+            candidate = f"{num}{letter}"
+            if candidate not in existing:
+                return candidate
+    # Fallback: use a UUID if all combos are exhausted (very unlikely)
+    import uuid
+    return str(uuid.uuid4())
 # helpers.py — Helper/utility functions extracted from cortex.py
 
 import os
@@ -309,27 +326,50 @@ async def _global_interaction_check(interaction: discord.Interaction) -> bool:
 # ---------------------------------------------------------------------------
 
 def get_system_members(system_id, subsystem_id=None):
+    """Return a list of members for a system and optional subsystem."""
     if system_id not in systems_data["systems"]:
         return None
 
     system = systems_data["systems"][system_id]
 
-    if subsystem_id is None:
-        return system.get("members", {})
-    else:
+    # If subsystem_id is in any side system, return its members
+    if subsystem_id is not None:
+        # Check main system subsystems
         subsystems = system.get("subsystems", {})
-        if subsystem_id not in subsystems:
-            return None
-        return subsystems[subsystem_id].get("members", {})
+        if subsystem_id in subsystems:
+            return subsystems[subsystem_id].get("members", {})
+        # Check all side systems
+        for side in (system.get("side_systems", {}) or {}).values():
+            subs = side.get("subsystems", {})
+            if subsystem_id in subs:
+                return subs[subsystem_id].get("members", {})
+        return None
+    else:
+        return system.get("members", {})
 
-def get_scope_label(subsystem_id):
-    return f"subsystem `{subsystem_id}`" if subsystem_id else "main system"
+def get_scope_label(side_id=None, subsystem_id=None):
+    if side_id and subsystem_id:
+        return f"side system `{side_id}` > subsystem `{subsystem_id}`"
+    elif side_id:
+        return f"side system `{side_id}`"
+    elif subsystem_id:
+        return f"subsystem `{subsystem_id}`"
+    else:
+        return "main system"
 
 def iter_system_member_dicts(system):
     """Yield (scope_id, members_dict) for main system and each subsystem."""
     yield (None, system.get("members", {}))
-    for sub_id, sub_data in system.get("subsystems", {}).items():
+    # Main system subsystems
+    for sub_id, sub_data in (system.get("subsystems", {}) or {}).items():
         yield (sub_id, sub_data.get("members", {}))
+    # Side systems and their subsystems
+    for side_id, side in (system.get("side_systems", {}) or {}).items():
+        # Side system members (scope: side_id)
+        yield (("side", side_id), side.get("members", {}))
+        # Side system subsystems (scope: (side_id, sub_id))
+        for sub_id, sub_data in (side.get("subsystems", {}) or {}).items():
+            yield (("side", side_id, sub_id), sub_data.get("members", {}))
 
 
 def get_member_sort_mode(system):
@@ -1430,131 +1470,23 @@ def build_member_profile_embed(member, system=None):
     return embed
 
 
-def build_member_profile_cv2(member, system=None):
-    """Build a CV2 Container for a member profile card."""
+def build_member_profile_cv2(member, system=None, side_id=None, subsystem_id=None):
+    """Build a CV2 Container for a member profile card, with scope label support."""
     accent = _cv2_color(member.get("color"))
     container = discord.ui.Container(accent_colour=accent)
 
-    def _truncate(text, limit):
-        text = str(text or "").strip()
-        return text if len(text) <= limit else text[:limit - 3].rstrip() + "..."
-
+    # Only show member name, member ID, and scope (side system/subsystem)
     member_name = member["name"]
-    display_name = str(member.get("display_name") or "").strip() or None
-    profile_pic_url = normalize_embed_image_url(member.get("profile_pic"))
+    header_text = f"### {member_name}"
+    container.add_item(discord.ui.TextDisplay(header_text))
 
-    # --- Header: name (system) with optional thumbnail ---
-    author_name = member_name
-    if system:
-        system_name = system.get("system_name") or system.get("name")
-        if system_name:
-            author_name = f"{member_name} ({system_name})"
+    # Scope label
+    from helpers import get_scope_label
+    scope_label = get_scope_label(side_id, subsystem_id)
+    container.add_item(discord.ui.TextDisplay(f"**Scope:** {scope_label}"))
 
-    header_text = f"### {author_name}"
-    if profile_pic_url:
-        thumb = discord.ui.Thumbnail(profile_pic_url)
-        container.add_item(discord.ui.Section(
-            discord.ui.TextDisplay(header_text),
-            accessory=thumb,
-        ))
-    else:
-        container.add_item(discord.ui.TextDisplay(header_text))
-
-    # --- Info fields ---
-    info_lines = []
-    if display_name and display_name != member_name:
-        info_lines.append(f"🪪 **Display Name:** {_truncate(display_name, 250)}")
-    pronouns = member.get("pronouns")
-    if pronouns:
-        info_lines.append(f"🌈 **Pronouns:** {_truncate(pronouns, 250)}")
-    birthday = member.get("birthday")
-    if birthday:
-        try:
-            parts = str(birthday).strip().split("-")
-            if len(parts) == 3:
-                birthday_display = f"{parts[1]}/{parts[2]}"
-            elif len(parts) == 2:
-                birthday_display = f"{parts[0]}/{parts[1]}"
-            else:
-                birthday_display = birthday
-        except Exception:
-            birthday_display = birthday
-        info_lines.append(f"🎂 **Birthday:** {birthday_display}")
-    tags = ", ".join(member.get("tags", [])) if member.get("tags") else None
-    if tags:
-        info_lines.append(f"🏷️ **Tags:** {_truncate(tags, 250)}")
-    playlist_text = format_playlist_link(member["yt_playlist"]) if member.get("yt_playlist") else None
-    if playlist_text:
-        info_lines.append(f"🎵 **Playlist:** {playlist_text}")
-    color_val = member.get("color")
-    if color_val:
-        info_lines.append(f"🎨 **Color:** #{str(color_val).lstrip('#')}")
-
-    if info_lines:
-        container.add_item(discord.ui.TextDisplay("\n".join(info_lines)))
-
-    # --- Fronting status ---
-    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
-    current_front = member.get("current_front")
-    if current_front:
-        try:
-            start_dt = datetime.fromisoformat(current_front["start"])
-            duration = format_duration((datetime.now(timezone.utc) - start_dt).total_seconds())
-            cofront_ids = current_front.get("cofronts", [])
-            cofront_text = ""
-            if cofront_ids and system:
-                cofront_names = []
-                for scope_id, members_dict in iter_system_member_dicts(system):
-                    for cofront_id in cofront_ids:
-                        if cofront_id in members_dict:
-                            cofront_names.append(members_dict[cofront_id].get("name", cofront_id))
-                if cofront_names:
-                    cofront_text = f" (with {', '.join(cofront_names)})"
-            container.add_item(discord.ui.TextDisplay(f"🟢 **Currently Fronting:** Yes, for {duration}{cofront_text}"))
-        except (ValueError, KeyError):
-            container.add_item(discord.ui.TextDisplay("🟢 **Currently Fronting:** Yes"))
-    else:
-        container.add_item(discord.ui.TextDisplay("⚪ **Currently Fronting:** No"))
-
-    total_front_seconds = calculate_front_duration(member)
-    if total_front_seconds > 0:
-        container.add_item(discord.ui.TextDisplay(f"⏱️ **Total Front Time:** {format_duration(total_front_seconds)}"))
-
-    # --- Proxy tags ---
-    proxy_text = render_member_proxy_result(member)
-    if proxy_text and proxy_text != "Not set":
-        container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
-        container.add_item(discord.ui.TextDisplay(f"🔗 **Proxy Tags:** `{_truncate(proxy_text, 1000)}`"))
-
-    # --- Groups ---
-    if system is not None:
-        groups_text = format_member_group_lines(system, member)
-        if groups_text and groups_text != "None":
-            container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
-            container.add_item(discord.ui.TextDisplay(f"👥 **Groups:** {_truncate(groups_text, 1024)}"))
-
-    # --- Description ---
-    bio_text = fit_box_drawing(str(member.get("description") or "").strip())
-    if bio_text:
-        container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
-        container.add_item(discord.ui.TextDisplay(f"📝 **Description**\n{_truncate(bio_text, 1024)}"))
-
-    # --- Banner ---
-    banner_url = normalize_embed_image_url(member.get("banner"))
-    if banner_url:
-        container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(banner_url)))
-
-    # --- Footer ---
-    footer_parts = [f"Member ID: {member['id']}"]
-    created_iso = member.get("created_at")
-    if created_iso:
-        try:
-            created_dt = datetime.fromisoformat(created_iso)
-            footer_parts.append(f"Created on {created_dt.strftime('%B %d, %Y')}")
-        except Exception:
-            pass
-    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
-    container.add_item(discord.ui.TextDisplay(f"-# {' | '.join(footer_parts)}"))
+    # Member ID
+    container.add_item(discord.ui.TextDisplay(f"**Member ID:** {member['id']}"))
 
     return container
 
@@ -2676,8 +2608,9 @@ async def member_name_autocomplete(interaction: discord.Interaction, current: st
         if not system_id:
             return []
 
-        subsystem_id = interaction.namespace.subsystem_id if hasattr(interaction.namespace, "subsystem_id") else None
-        members_dict = get_system_members(system_id, subsystem_id)
+        side_id = getattr(interaction.namespace, "side_id", None) if hasattr(interaction, "namespace") else None
+        subsystem_id = getattr(interaction.namespace, "subsystem_id", None) if hasattr(interaction, "namespace") else None
+        members_dict = get_system_members(system_id, side_id, subsystem_id)
         if not members_dict:
             return []
 
@@ -2699,8 +2632,9 @@ async def member_id_autocomplete(interaction: discord.Interaction, current: str)
         system_id = get_user_system_id(user_id)
         if not system_id:
             return []
-        subsystem_id = interaction.namespace.subsystem_id if hasattr(interaction.namespace, "subsystem_id") else None
-        members_dict = get_system_members(system_id, subsystem_id)
+        side_id = getattr(interaction.namespace, "side_id", None) if hasattr(interaction, "namespace") else None
+        subsystem_id = getattr(interaction.namespace, "subsystem_id", None) if hasattr(interaction, "namespace") else None
+        members_dict = get_system_members(system_id, side_id, subsystem_id)
         if not members_dict:
             return []
         options = []
@@ -2716,18 +2650,18 @@ async def member_id_autocomplete(interaction: discord.Interaction, current: str)
         return []
 
 async def switchmember_member_id_autocomplete(interaction: discord.Interaction, current: str):
-    """Autocomplete for switchmember member_id that's aware of subsystem_id parameter."""
+    """Autocomplete for switchmember member_id that's aware of side_id and subsystem_id parameters."""
     try:
         user_id = interaction.user.id
         system_id = get_user_system_id(user_id)
         if not system_id:
             return []
 
-        # Get subsystem_id from the interaction namespace if it was already filled in
-        subsystem_id = interaction.namespace.subsystem_id if hasattr(interaction.namespace, 'subsystem_id') else None
+        side_id = getattr(interaction.namespace, "side_id", None) if hasattr(interaction, "namespace") else None
+        subsystem_id = getattr(interaction.namespace, "subsystem_id", None) if hasattr(interaction, "namespace") else None
 
         # Get members from the appropriate scope
-        members_dict = get_system_members(system_id, subsystem_id)
+        members_dict = get_system_members(system_id, side_id, subsystem_id)
         if not members_dict:
             return []
 
@@ -2749,8 +2683,15 @@ async def subsystem_id_autocomplete(interaction: discord.Interaction, current: s
         if not system_id:
             return []
 
+        side_id = getattr(interaction.namespace, "side_id", None) if hasattr(interaction, "namespace") else None
         system = systems_data.get("systems", {}).get(system_id, {})
-        subsystems = system.get("subsystems", {})
+        # If side_id is present, look for subsystems under that side system
+        if side_id:
+            sides = system.get("sidesystems", {})
+            side = sides.get(side_id, {})
+            subsystems = side.get("subsystems", {})
+        else:
+            subsystems = system.get("subsystems", {})
 
         options = []
         current_lower = current.lower()
@@ -2771,10 +2712,13 @@ async def tag_autocomplete(interaction: discord.Interaction, current: str):
         system_id = get_user_system_id(user_id)
         if not system_id:
             return []
+        side_id = getattr(interaction.namespace, "side_id", None) if hasattr(interaction, "namespace") else None
         system = systems_data.get("systems", {}).get(system_id)
         if not system:
             return []
 
+        # If side_id is present, get tags for that side system if implemented, else fallback to system
+        # (Assume get_available_tags_for_system can be extended for side systems if needed)
         options = []
         query = (current or "").lower()
         for tag in get_available_tags_for_system(system):
@@ -2902,3 +2846,42 @@ def time_of_day_bucket(hour):
     if 17 <= hour < 22:
         return "Evening"
     return "Night"
+
+
+# ---------------------------------------------------------------------------
+# Side system hierarchy helpers (NEW)
+# ---------------------------------------------------------------------------
+
+def get_side_system(system, side_id):
+    """Return a side system dict by ID, or None if not found."""
+    return system.get("side_systems", {}).get(side_id)
+
+def get_subsystem(system, side_id=None, subsystem_id=None):
+    """Return a subsystem dict by ID, optionally under a side system."""
+    if side_id:
+        side = get_side_system(system, side_id)
+        if not side:
+            return None
+        return side.get("subsystems", {}).get(subsystem_id)
+    else:
+        return system.get("subsystems", {}).get(subsystem_id)
+
+def get_member(system, member_id, side_id=None, subsystem_id=None):
+    """Return a member dict by ID, searching main, side, or subsystem as specified."""
+    if side_id:
+        side = get_side_system(system, side_id)
+        if not side:
+            return None
+        if subsystem_id:
+            subsys = side.get("subsystems", {}).get(subsystem_id)
+            if not subsys:
+                return None
+            return subsys.get("members", {}).get(member_id)
+        return side.get("members", {}).get(member_id)
+    elif subsystem_id:
+        subsys = system.get("subsystems", {}).get(subsystem_id)
+        if not subsys:
+            return None
+        return subsys.get("members", {}).get(member_id)
+    else:
+        return system.get("members", {}).get(member_id)

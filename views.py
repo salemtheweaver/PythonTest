@@ -200,8 +200,10 @@ class TagView(discord.ui.View):
 
 
 class TagMultiSelect(discord.ui.Select):
-    def __init__(self, available_tags, members_dict):
+    def __init__(self, available_tags, members_dict, side_id=None, subsystem_id=None):
         self.members_dict = members_dict
+        self.side_id = side_id
+        self.subsystem_id = subsystem_id
         options = [discord.SelectOption(label=tag, value=tag) for tag in available_tags[:25]]
         super().__init__(
             placeholder="Select one or more tags (up to 25 shown)...",
@@ -229,13 +231,17 @@ class TagMultiSelect(discord.ui.Select):
         result_view.add_item(discord.ui.ActionRow(TagMultiSelect(
             [opt.value for opt in self.options],
             self.members_dict,
+            side_id=self.side_id,
+            subsystem_id=self.subsystem_id
         )))
         await interaction.response.edit_message(view=result_view)
 
 
 class TagMultiView(discord.ui.LayoutView):
-    def __init__(self, available_tags, members_dict):
+    def __init__(self, available_tags, members_dict, side_id=None, subsystem_id=None):
         super().__init__(timeout=None)
+        self.side_id = side_id
+        self.subsystem_id = subsystem_id
         # Intro container
         intro = cv2_container(
             discord.ui.TextDisplay("### Tag Browser\nSelect one or more tags from the dropdown."),
@@ -243,7 +249,7 @@ class TagMultiView(discord.ui.LayoutView):
         )
         self.add_item(intro)
         if available_tags:
-            self.add_item(discord.ui.ActionRow(TagMultiSelect(available_tags, members_dict)))
+            self.add_item(discord.ui.ActionRow(TagMultiSelect(available_tags, members_dict, side_id=side_id, subsystem_id=subsystem_id)))
 
 
 # -----------------------------
@@ -252,6 +258,8 @@ class TagMultiView(discord.ui.LayoutView):
 class CoFrontSelect(discord.ui.Select):
     def __init__(self, parent_view):
         self.parent_view = parent_view
+        self.side_id = getattr(parent_view, 'side_id', None)
+        self.subsystem_id = getattr(parent_view, 'subsystem_id', None)
         options = self.parent_view.build_page_options()
         super().__init__(
             placeholder="Select co-front members...",
@@ -268,9 +276,11 @@ class CoFrontSelect(discord.ui.Select):
 
 
 class CoFrontView(discord.ui.View):
-    def __init__(self, members_dict, main_member_id):
+    def __init__(self, members_dict, main_member_id, side_id=None, subsystem_id=None):
         super().__init__(timeout=120)
         self.main_member_id = str(main_member_id)
+        self.side_id = side_id
+        self.subsystem_id = subsystem_id
         self.member_items = sorted(
             [
                 (str(member_id), member)
@@ -366,15 +376,39 @@ class ConfirmAction(discord.ui.View):
 # Remove member confirmation
 # -----------------------------
 class ConfirmRemove(discord.ui.View):
-    def __init__(self, member_id, system_id, subsystem_id):
+    def __init__(self, member_id, system_id, side_id=None, subsystem_id=None):
         super().__init__(timeout=30)
         self.member_id = member_id
         self.system_id = system_id
+        self.side_id = side_id
         self.subsystem_id = subsystem_id
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        members_dict = get_system_members(self.system_id, self.subsystem_id)
+        from helpers import get_side_system
+        system = systems_data["systems"][self.system_id]
+        if self.side_id:
+            side = get_side_system(system, self.side_id)
+            if not side:
+                await interaction.response.edit_message(content="Side system not found.", view=None)
+                return
+            if self.subsystem_id:
+                subs = side.get("subsystems", {})
+                if self.subsystem_id not in subs:
+                    await interaction.response.edit_message(content="Subsystem not found in side system.", view=None)
+                    return
+                members_dict = subs[self.subsystem_id]["members"]
+            else:
+                members_dict = side.get("members", {})
+        else:
+            if self.subsystem_id:
+                subsystems = system.get("subsystems", {})
+                if self.subsystem_id not in subsystems:
+                    await interaction.response.edit_message(content="Subsystem not found.", view=None)
+                    return
+                members_dict = subsystems[self.subsystem_id]["members"]
+            else:
+                members_dict = system.get("members", {})
         if members_dict and self.member_id in members_dict:
             name = members_dict[self.member_id]["name"]
             del members_dict[self.member_id]
@@ -410,9 +444,11 @@ class MultiMemberSelect(discord.ui.Select):
 
 
 class MultiMemberView(discord.ui.View):
-    def __init__(self, members_dict):
+    def __init__(self, members_dict, side_id=None, subsystem_id=None):
         super().__init__(timeout=120)
         self.members_dict = members_dict
+        self.side_id = side_id
+        self.subsystem_id = subsystem_id
         self.member_items = sorted(
             [(member_id, member) for member_id, member in members_dict.items()],
             key=lambda item: item[1].get("name", "").lower()
@@ -495,13 +531,21 @@ class ConfirmClearSystem(discord.ui.View):
         # Clear main system members
         self.system["members"] = {}
 
-        # Clear all subsystem members
+        # Clear all main system subsystems
         for subsystem in self.system.get("subsystems", {}).values():
             subsystem["members"] = {}
 
+        # Clear all side system members and their subsystems
+        for side in self.system.get("side_systems", {}).values():
+            # Clear side system members
+            side["members"] = {}
+            # Clear all subsystems within this side system
+            for sub in side.get("subsystems", {}).values():
+                sub["members"] = {}
+
         save_systems()
         await interaction.response.edit_message(
-            content="All members have been removed from your entire system (main + all subsystems).",
+            content="All members have been removed from your entire system (main, all side systems, and all subsystems).",
             view=None
         )
 

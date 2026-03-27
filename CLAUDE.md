@@ -1,6 +1,52 @@
+
 # Cortex Discord Bot
 
-**Version**: 2.2.1 | **Last Updated**: March 22, 2026 | **Python**: 3.12.10 | **Deployed on**: Railway
+**Version**: 2.3.0 | **Last Updated**: March 27, 2026 | **Python**: 3.12.10 | **Deployed on**: Railway
+
+
+## System Hierarchy Overview
+
+**Cortex** supports a flexible three-level hierarchy for organizing members:
+
+```
+Main System
+├── Side System: "alpha"
+│   ├── Subsystem: "beta"
+│   │   └── Members: Alice, Bob
+│   └── Members: Charlie
+├── Side System: "omega"
+│   └── Members: Delta
+└── Members: Echo, Foxtrot
+```
+
+- **Main System**: The root system for a user. Contains members and any number of side systems.
+- **Side System**: An optional grouping under the main system. Each side system can have its own members and subsystems.
+- **Subsystem**: Nested under a side system (or directly under the main system if no side system is used). Subsystems contain members.
+
+**Command arguments:**
+- Most member/group/tag commands now accept `side_id` and/or `subsystem_id` to specify the target scope.
+- If only `subsystem_id` is provided, the main system's subsystems are used. If both `side_id` and `subsystem_id` are provided, the subsystem is resolved within the given side system.
+- If neither is provided, the main system's members are used.
+
+**Example usage:**
+- To add a member to a side system: `/addmember side_id=alpha`
+- To add a member to a subsystem within a side system: `/addmember side_id=alpha subsystem_id=beta`
+- To add a member to a main system subsystem: `/addmember subsystem_id=main_sub`
+
+**Tip:** When referencing "subsystem" in commands or documentation, it may refer to either a main system subsystem or a subsystem within a side system. Always specify `side_id` if you mean a side system's subsystem.
+
+See below for more details on how scopes work.
+## Common Patterns & Edge Cases
+
+- Moving members: You can move members between main, side, and subsystem scopes using `/movemember` with the appropriate `side_id` and/or `subsystem_id`.
+- Deleting a side system or subsystem will remove all members within that scope.
+- Privacy and permissions are enforced per member, regardless of scope.
+- Most listing and search commands will show results from all scopes unless filtered.
+
+**Edge cases:**
+- If a member exists in both a side system and a main system with the same name, use their unique ID for disambiguation.
+- If you provide only `subsystem_id`, the main system's subsystems are used by default.
+- If you provide both `side_id` and `subsystem_id`, the subsystem is resolved within the given side system.
 
 ## Project Overview
 
@@ -54,10 +100,47 @@ All modules import from `config.py` and `data.py`. `helpers.py` is the shared lo
 
 ## Core Concepts
 
+
 ### System Scopes
-- **Main System**: Members at `system["members"]`
-- **Subsystems**: Nested at `system["subsystems"][subsystem_id]["members"]`
-- Functions use `subsystem_id=None` for main scope
+
+**Main System:**
+- Members are stored at `system["members"]`.
+
+**Side Systems:**
+- Each side system is stored at `system["side_systems"][side_id]`.
+- Side system members: `system["side_systems"][side_id]["members"]`
+- Side system subsystems: `system["side_systems"][side_id]["subsystems"][subsystem_id]["members"]`
+
+**Main System Subsystems:**
+- Subsystems directly under the main system are at `system["subsystems"][subsystem_id]["members"]`
+
+**Function usage:**
+- To get main system members: `get_system_members(system_id)`
+- To get side system members: `get_system_members(system_id, side_id=...)`
+- To get subsystem members: `get_system_members(system_id, side_id=..., subsystem_id=...)`
+- If only `subsystem_id` is provided, the main system's subsystems are used.
+
+**Example data structure:**
+```json
+{
+  "members": { ... },
+  "side_systems": {
+    "alpha": {
+      "members": { ... },
+      "subsystems": {
+        "beta": {
+          "members": { ... }
+        }
+      }
+    }
+  },
+  "subsystems": {
+    "main_sub": {
+      "members": { ... }
+    }
+  }
+}
+```
 
 ### Member Structure (actual)
 ```json
@@ -111,7 +194,15 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 - **Max proxy audit**: 5000 entries
 - **Max external audit**: 200 entries
 
+
 ## Command Categories (90+ slash, 80+ prefix)
+
+**Note:** Most member/group/tag commands now accept `side_id` and/or `subsystem_id` to specify the target scope. If only `subsystem_id` is provided, the main system's subsystems are used. If both are provided, the subsystem is resolved within the given side system. If neither is provided, the main system's members are used.
+
+**Examples:**
+- `/addmember side_id=alpha` — Add a member to a side system
+- `/addmember side_id=alpha subsystem_id=beta` — Add a member to a subsystem within a side system
+- `/addmember subsystem_id=main_sub` — Add a member to a main system subsystem
 
 ### System Setup
 `/register`, `/createsubsystem`, `/editsubsystem`, `/deletesystem`, `/clearsystem`, `/clearall`, `/refresh`, `/synccommands`
@@ -121,6 +212,11 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 
 ### Member Management
 `/addmember`, `/members`, `/viewmember`, `/editmember`, `/editmemberimages`, `/removemember`, `/removemembers`, `/searchmember`, `/random`, `/membersort`, `/movemember`
+
+> **Note:** For all member/group/tag commands, `side_id` and/or `subsystem_id` can be used to specify the target scope. If only `subsystem_id` is provided, the main system's subsystems are used. If both are provided, the subsystem is resolved within the given side system. If neither is provided, the main system's members are used. When referencing "subsystem" in commands or documentation, it may refer to either a main system subsystem or a subsystem within a side system. Always specify `side_id` if you mean a side system's subsystem.
+### Development Guidelines
+
+> **Subsystem Reference:** Throughout the codebase and documentation, "subsystem" may refer to either a main system subsystem or a subsystem within a side system. Always clarify which is meant, and use both `side_id` and `subsystem_id` in function signatures and command arguments when targeting a side system's subsystem.
 
 ### Proxy & Tags
 `/editmembertag`, `/addmembertag`, `/removemembertag`, `/addtag`, `/removetag`, `/listtags`, `/browsetags`
@@ -158,10 +254,16 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 ### Moderation (admin only)
 `/modreports`, `/modwarn`, `/modsuspend`, `/modban`, `/modunban`, `/modappeal`
 
+
 ### Import/Export
 `/exportsystem`, `/importsystem`, `/importpluralkit`
 
+> **Note:** Import/export commands and logic must support the full hierarchy, including side systems and subsystems. When importing, ensure members are placed in the correct scope (main, side, or subsystem) based on provided arguments. When exporting, preserve the hierarchy in the output data.
+
+
 ## Background Tasks (tasks.py)
+
+> **Note:** All background tasks (reminders, mood summaries, scheduled messages, birthdays) should iterate over all members in all scopes (main, side, and subsystems). Use hierarchy-aware helpers to avoid missing members in side systems or subsystems.
 
 | Task | Interval | Purpose |
 |------|----------|---------|
@@ -170,7 +272,10 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 | `scheduled_messages_loop` | 1 min | Deliver queued scheduled messages |
 | `birthday_reminder_loop` | 6 hours | DM birthday reminders N days before |
 
+
 ## Event Handlers (events.py)
+
+> **Note:** All event handlers (proxying, switching, reactions) must use hierarchy-aware helpers and pass scope information (side_id, subsystem_id) as needed. This ensures correct behavior for all member operations regardless of scope.
 
 - **on_ready**: Logs login, starts background tasks (no auto command sync)
 - **on_message**: Timezone prompt handling, proxy routing (explicit `;;`, tagged, autoproxy), webhook send, reply embeds, duplicate cleanup
@@ -191,8 +296,10 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 
 ## Version History
 
+
 | Version | Date | Summary |
 |---------|------|---------|
+| **2.3.0** | March 27, 2026 | Major update: Side system ID assignment logic unified across all commands and imports; fixed all syntax errors; improved import robustness; version bump. |
 | **2.2.1** | March 20, 2026 | Member card layout fixes, random scope controls, PK import improvements |
 | **2.2.0** | March 19, 2026 | Multi-admin support, 4-tier privacy model, friend lists, ? reaction member cards |
 | **2.1.3** | March 19, 2026 | Proxy deduplication, register UX (optional system name) |
@@ -265,24 +372,54 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 - **MINOR**: New features, backwards compatible
 - **PATCH**: Bug fixes, documentation updates
 
-## Development Guidelines
+
+## Help Output & Usage Messages
+
+All help commands, paginators, and usage messages should:
+- Clearly mention the Main > Side System > Subsystem hierarchy.
+- Show example usage with `side_id` and/or `subsystem_id` where relevant.
+- Clarify in help text when a command targets a main system, a side system, or a subsystem within a side system.
+- Use consistent terminology: "side system" for the intermediate grouping, "subsystem" for the lowest level (nested under either main or side).
+
+**Example help text:**
+> `/addmember side_id=alpha subsystem_id=beta` — Adds a member to subsystem "beta" within side system "alpha".
+> `/members subsystem_id=main_sub` — Lists members in a main system subsystem.
+> If neither argument is provided, the main system's members are used.
+
+Update all help output and command descriptions to reflect these patterns for user clarity.
+
+## Developer Notes
+
+- Always use hierarchy-aware helpers (e.g., `get_system_members`, `get_side_system`, `get_subsystem`) in commands, UI, and event handlers.
+- When adding new features, ensure all member/group/tag operations accept and pass `side_id` and/or `subsystem_id` as needed.
+- When referencing "subsystem" in code or docs, clarify if it is a main system subsystem or a side system's subsystem.
+- When iterating over all members, use helpers that traverse all scopes (main, side, and subsystems).
+- When in doubt, prefer explicit argument names and docstrings to avoid ambiguity.
+
 
 ### Adding a Command
 1. Add slash command in `commands_slash.py` using `@tree.command()`
 2. Mirror as prefix command in `commands_prefix.py` using `@bot.command()`
 3. Add to `SINGLET_ALLOWED_COMMANDS` or `MOD_COMMANDS` in config.py if needed
 4. Use `await interaction.response.defer()` for operations that may take >3 seconds
+5. For member/group/tag commands, ensure you accept and pass `side_id` and/or `subsystem_id` to helpers for correct scope resolution.
 
 ### Saving Data
 Always call `save_systems()` after modifying `systems_data` — it writes locally first, then queues GitHub sync in background.
 
+
 ### Key Patterns
 - System lookup: `get_user_system_id(user_id)` → system_id
-- Member resolve: `resolve_member_identifier_in_system(system, token, subsystem_id)`
+- Member resolve: `resolve_member_identifier_in_system(system, token, subsystem_id, side_id=None)` (always clarify which subsystem)
 - Privacy check: `can_view_member_data(member, requester_id)`
 - Fronting: `start_front()` / `end_front()` / `get_fronting_member_for_user()`
+- Always use helpers that accept both `side_id` and `subsystem_id` for member/group/tag operations.
+- Prefer explicit argument names and docstrings to clarify scope.
+
 
 ## File Listing
+
+> **Note:** When reading or editing code, always clarify whether a "subsystem" reference is for a main system subsystem or a side system's subsystem. File and function names should be explicit when possible.
 
 ```
 d:\Programming\Discord bot\
@@ -305,4 +442,10 @@ d:\Programming\Discord bot\
 ├── CLAUDE.md                  This file (auto-loaded by Claude Code)
 └── systems/                   Per-system JSON data files
     └── 1.json through 9.json
+
+  ## Testing & Validation
+
+  - Update or add tests to cover all hierarchy scenarios: main, side, and subsystem operations for all commands and UI components.
+  - Validate that all UI components (views, paginators, selectors) work with side systems and subsystems.
+  - Test edge cases: moving members between scopes, deleting sides/subsystems, privacy/permission checks across all scopes.
 ```

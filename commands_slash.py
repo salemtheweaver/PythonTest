@@ -1,4 +1,3 @@
-
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -21,6 +20,7 @@ from config import (
 from data import systems_data, save_systems, save_system
 
 from helpers import (
+        get_side_system,
     get_user_system_id,
     get_system_members,
     get_scope_label,
@@ -809,7 +809,7 @@ async def alterprivacy(
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     raw_level = str(level).strip().lower()
@@ -928,6 +928,96 @@ async def importsystem(interaction: discord.Interaction, file: discord.Attachmen
     except Exception:
         await interaction.response.send_message("Failed to read or parse the import file. Make sure it's a valid JSON export.", ephemeral=True)
         return
+
+    # Validate required keys for hierarchy, migrate legacy flat format if needed
+    if not isinstance(import_data, dict):
+        await interaction.response.send_message("Import failed: Root object must be a JSON object.", ephemeral=True)
+        return
+    # Legacy migration: if no side_systems or subsystems, treat as flat and migrate all members to main system
+    if "members" in import_data and isinstance(import_data["members"], dict):
+        pass  # valid
+    elif "members" in import_data and isinstance(import_data["members"], list):
+        # Legacy: convert list to dict with numeric IDs
+        import_data["members"] = {str(i+1): m for i, m in enumerate(import_data["members"])}
+    else:
+        import_data["members"] = {}
+
+    # Validate side_systems if present, and assign IDs if missing or blank
+    from helpers import get_next_side_system_id
+    if "side_systems" in import_data:
+        if not isinstance(import_data["side_systems"], dict):
+            await interaction.response.send_message("Import failed: 'side_systems' must be a dictionary.", ephemeral=True)
+            return
+        new_side_systems = {}
+        for orig_side_id, side in import_data["side_systems"].items():
+            # Assign a new side_id if missing or blank
+            side_id = orig_side_id or None
+            if not side_id or side_id.strip() == "":
+                # Use helper to generate next available side system ID
+                side_id = get_next_side_system_id(import_data)
+            # Ensure no collision
+            while side_id in new_side_systems:
+                side_id = get_next_side_system_id(import_data)
+            if not isinstance(side, dict) or "members" not in side or not isinstance(side["members"], dict):
+                await interaction.response.send_message(f"Import failed: Side system '{side_id}' is missing a valid 'members' dictionary.", ephemeral=True)
+                return
+            if "subsystems" in side:
+                if not isinstance(side["subsystems"], dict):
+                    await interaction.response.send_message(f"Import failed: 'subsystems' in side system '{side_id}' must be a dictionary.", ephemeral=True)
+                    return
+                for sub_id, sub in side["subsystems"].items():
+                    if not isinstance(sub, dict) or "members" not in sub or not isinstance(sub["members"], dict):
+                        await interaction.response.send_message(f"Import failed: Subsystem '{sub_id}' in side system '{side_id}' is missing a valid 'members' dictionary.", ephemeral=True)
+                        return
+            new_side_systems[side_id] = side
+        import_data["side_systems"] = new_side_systems
+    # Validate main system subsystems if present
+    if "subsystems" in import_data:
+        if not isinstance(import_data["subsystems"], dict):
+            await interaction.response.send_message("Import failed: 'subsystems' must be a dictionary.", ephemeral=True)
+            return
+        for sub_id, sub in import_data["subsystems"].items():
+            if not isinstance(sub, dict) or "members" not in sub or not isinstance(sub["members"], dict):
+                await interaction.response.send_message(f"Import failed: Subsystem '{sub_id}' is missing a valid 'members' dictionary.", ephemeral=True)
+                return
+
+    # Conflict resolution: remap member IDs if any conflict with existing system
+    def remap_ids(members_dict, used_ids):
+        new_members = {}
+        id_map = {}
+        for old_id, member in members_dict.items():
+            new_id = old_id
+            while new_id in used_ids:
+                new_id = str(int(new_id) + 1)
+            id_map[old_id] = new_id
+            new_members[new_id] = member
+            used_ids.add(new_id)
+        return new_members, id_map
+
+    # Gather all used IDs in all existing systems
+    used_ids = set()
+    for sys in systems_data["systems"].values():
+        used_ids.update(sys.get("members", {}).keys())
+        for side in sys.get("side_systems", {}).values():
+            used_ids.update(side.get("members", {}).keys())
+            for sub in side.get("subsystems", {}).values():
+                used_ids.update(sub.get("members", {}).keys())
+        for sub in sys.get("subsystems", {}).values():
+            used_ids.update(sub.get("members", {}).keys())
+
+    # Remap main members
+    import_data["members"], _ = remap_ids(import_data["members"], used_ids)
+    # Remap side system and subsystem member IDs
+    if "side_systems" in import_data:
+        for side in import_data["side_systems"].values():
+            side["members"], _ = remap_ids(side["members"], used_ids)
+            if "subsystems" in side:
+                for sub in side["subsystems"].values():
+                    sub["members"], _ = remap_ids(sub["members"], used_ids)
+    if "subsystems" in import_data:
+        for sub in import_data["subsystems"].values():
+            sub["members"], _ = remap_ids(sub["members"], used_ids)
+
     # Remove old owner and assign new
     import_data["owner_id"] = str(user_id)
     import_data.pop("original_owner_id", None)
@@ -958,12 +1048,25 @@ async def privacystatus(interaction: discord.Interaction):
     total_members = 0
     sample_lines = []
     for scope_id, members_dict in iter_system_member_dicts(system):
+        # Unpack scope_id for side system support
+        if isinstance(scope_id, tuple):
+            if len(scope_id) == 3:
+                _, side_id, sub_id = scope_id
+            elif len(scope_id) == 2:
+                _, side_id = scope_id
+                sub_id = None
+            else:
+                side_id = None
+                sub_id = None
+        else:
+            side_id = None
+            sub_id = scope_id
         for member_id, member in members_dict.items():
             level = get_member_privacy_level(member)
             counts[level] = counts.get(level, 0) + 1
             total_members += 1
             if len(sample_lines) < 12:
-                sample_lines.append(f"• {member.get('name', member_id)} (`{member_id}`) — {level} ({get_scope_label(scope_id)})")
+                sample_lines.append(f"• {member.get('name', member_id)} (`{member_id}`) — {level} ({get_scope_label(side_id, sub_id)})")
 
     container = discord.ui.Container(accent_colour=discord.Colour.blurple())
     container.add_item(discord.ui.TextDisplay(
@@ -1228,7 +1331,7 @@ async def servermemberidentity(
         )
         return
     if error_key == "not_found" or not member:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     guild_key = str(interaction.guild_id)
@@ -1311,7 +1414,7 @@ async def servermemberidentitystatus(
         )
         return
     if error_key == "not_found" or not member:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     guild_id = interaction.guild_id
@@ -1331,8 +1434,21 @@ async def servermemberidentitystatus(
     system_level_icon = (system_override.get("profile_pic") if system_override else None) or base_icon
     eff_icon = (member_override.get("profile_pic") if member_override else None) or system_level_icon
 
+    # Unpack resolved_scope_id for side system support
+    if isinstance(resolved_scope_id, tuple):
+        if len(resolved_scope_id) == 3:
+            _, side_id, sub_id = resolved_scope_id
+        elif len(resolved_scope_id) == 2:
+            _, side_id = resolved_scope_id
+            sub_id = None
+        else:
+            side_id = None
+            sub_id = None
+    else:
+        side_id = None
+        sub_id = resolved_scope_id
     lines = [
-        f"**Member:** {member.get('name', 'Unknown')} (`{member_key}`) in {get_scope_label(resolved_scope_id)}",
+        f"**Member:** {member.get('name', 'Unknown')} (`{member_key}`) in {get_scope_label(side_id, sub_id)}",
         "",
         "**Display name:**",
         f"  Member default: {base_display}",
@@ -1358,12 +1474,13 @@ async def servermemberidentitystatus(
 # Add member
 # -----------------------------
 # /addmember — Add a new member with profile info and tags
-@tree.command(name="addmember", description="Add a member to a subsystem")
+@tree.command(name="addmember", description="Add a member to a subsystem or side system")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def addmember(
     interaction: discord.Interaction,
     name: str,
     displayname: str = None,
+    side_id: str = None,
     subsystem_id: str = None,
     pronouns: str = None,
     birthday: str = None,
@@ -1379,10 +1496,30 @@ async def addmember(
     if not system_id:
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
-    members = get_system_members(system_id, subsystem_id)
-    if members is None:
-        await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
-        return
+    system = systems_data["systems"][system_id]
+    # Use new helper to resolve correct members dict
+    if side_id:
+        side = get_side_system(system, side_id)
+        if not side:
+            await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
+            return
+        if subsystem_id:
+            subs = side.get("subsystems", {})
+            if subsystem_id not in subs:
+                await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
+                return
+            members = subs[subsystem_id]["members"]
+        else:
+            members = side.get("members", {})
+    else:
+        if subsystem_id:
+            subsystems = system.get("subsystems", {})
+            if subsystem_id not in subsystems:
+                await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
+                return
+            members = subsystems[subsystem_id]["members"]
+        else:
+            members = system.get("members", {})
     try:
         color_hex = normalize_hex(color)
     except ValueError as e:
@@ -1391,13 +1528,14 @@ async def addmember(
     if not color_hex:
         color_hex = "%06x" % random.randint(0, 0xFFFFFF)
 
-    available_tags = get_available_tags_for_system(systems_data.get("systems", {}).get(system_id, {}))
+    available_tags = get_available_tags_for_system(system)
 
     # Show interactive tag selector
     view = TagView(available_tags)
     await interaction.response.send_message("Select tags then press Confirm.", view=view, ephemeral=True)
     await view.wait()
     tags_list = view.selected_tags
+    # ...rest of your member creation logic...
 
     # Save any custom tags selected by user that are outside common presets.
     system = systems_data.get("systems", {}).get(system_id, {})
@@ -1433,7 +1571,7 @@ async def addmember(
         ephemeral_warnings.append("profile pic")
     if banner and is_ephemeral_discord_attachment_url(banner.url):
         ephemeral_warnings.append("banner")
-    msg = f"Member **{name}** added to {get_scope_label(subsystem_id)}.\nID `{member_id}`"
+    msg = f"Member **{name}** added to {get_scope_label(side_id, subsystem_id)}.\nID `{member_id}`"
     if ephemeral_warnings:
         joined = ", ".join(ephemeral_warnings)
         msg += f"\n\u26a0\ufe0f Discord provided an expiring URL for {joined}. If images disappear later, re-upload using `Cor;editmemberimages`."
@@ -1467,8 +1605,25 @@ async def movemember(
         return
 
     save_systems()
+    # Unpack old_scope and new_scope for side system support
+    def unpack_scope(scope):
+        if isinstance(scope, tuple):
+            if len(scope) == 3:
+                _, side_id, sub_id = scope
+            elif len(scope) == 2:
+                _, side_id = scope
+                sub_id = None
+            else:
+                side_id = None
+                sub_id = None
+        else:
+            side_id = None
+            sub_id = scope
+        return side_id, sub_id
+    old_side, old_sub = unpack_scope(old_scope)
+    new_side, new_sub = unpack_scope(new_scope)
     await interaction.response.send_message(
-        f"Moved member `{member_id}` from {get_scope_label(old_scope)} to {get_scope_label(new_scope)}.",
+        f"Moved member `{member_id}` from {get_scope_label(old_side, old_sub)} to {get_scope_label(new_side, new_sub)}.",
         ephemeral=True,
     )
 
@@ -1586,7 +1741,6 @@ async def importpluralkit(
                 if not overwrite_existing:
                     skipped_count += 1
                     continue
-
                 _, existing_member = matched
                 existing_member["pk_member_id"] = pk_member_id
                 existing_member["name"] = mapped["name"]
@@ -1704,7 +1858,7 @@ async def messageto(interaction: discord.Interaction, member_id: str, message: s
         return
 
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     # Find who is currently fronting to use as sender
@@ -2135,8 +2289,6 @@ async def recentexternal(interaction: discord.Interaction, limit: int = 10):
         lines.append(f"- {ts} | {action} | sender={sender} {details}")
     await interaction.response.send_message("Recent external events:\n" + "\n".join(lines), ephemeral=True)
 
-# /externalquiethours — Configure quiet hours for external DM delivery
-@tree.command(name="externalquiethours", description="Configure quiet hours for external DM detail delivery")
 async def externalquiethours(interaction: discord.Interaction, enabled: bool, start_hour: int = 23, end_hour: int = 7):
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
@@ -2269,7 +2421,7 @@ async def modban(interaction: discord.Interaction, user_id: str, scope: str = "e
         return
     parsed = parse_discord_user_id(user_id)
     if not parsed:
-        await interaction.response.send_message("Invalid user ID.", ephemeral=True)
+        await interaction.response.send_message("Invalid user ID. Use a numeric Discord ID or mention.", ephemeral=True)
         return
     sanctions = get_user_sanctions(parsed)
     if scope == "all":
@@ -2586,7 +2738,7 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
 
     # Build response
     new_name = resolved_member.get("name", resolved_member_id)
-    response = f"Member **{new_name}** is now fronting in {get_scope_label(subsystem_id)}."
+    response = f"Member **{new_name}** is now fronting in {get_scope_label(None, subsystem_id)}."
 
     # Show and clear any pending inbox messages
     system = systems_data.get("systems", {}).get(system_id, {})
@@ -2622,7 +2774,7 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
                     response += "\n> Quiet hours are active, so external details were not DM'd right now."
                 else:
                     dm_lines = [
-                        f"External inbox for {resolved_member.get('name', resolved_member_id)} ({get_scope_label(subsystem_id)}):"
+                        f"External inbox for {resolved_member.get('name', resolved_member_id)} ({get_scope_label(None, subsystem_id)}):"
                     ]
                     for idx, msg in enumerate(external_msgs, start=1):
                         dm_lines.append(f"\n#{idx}\n{format_inbox_entry_for_dm(msg)}")
@@ -2657,11 +2809,22 @@ async def cofrontmember(interaction: discord.Interaction, member: str, subsystem
         return
 
     view = CoFrontView(members, resolved_member_id)
+    # Unpack target_scope_id for side system support
+    if isinstance(target_scope_id, tuple):
+        if len(target_scope_id) == 3:
+            _, side_id, sub_id = target_scope_id
+        elif len(target_scope_id) == 2:
+            _, side_id = target_scope_id
+            sub_id = None
+        else:
+            side_id = None
+            sub_id = None
+    else:
+        side_id = None
+        sub_id = target_scope_id
     await interaction.response.send_message(
-        (
-            f"Select co-front members for **{resolved_member.get('name', resolved_member_id)}** in {get_scope_label(target_scope_id)} then click Confirm. "
-            f"Page 1/{view.total_pages}. Selected: 0"
-        ),
+        f"Select co-front members for **{resolved_member.get('name', resolved_member_id)}** in {get_scope_label(side_id, sub_id)} then click Confirm. "
+        f"Page 1/{{view.total_pages}}. Selected: 0",
         view=view,
         ephemeral=True
     )
@@ -2682,8 +2845,21 @@ async def cofrontmember(interaction: discord.Interaction, member: str, subsystem
     save_systems()
 
     co_names = ", ".join([members[c]["name"] for c in selected_cofronts]) if selected_cofronts else "None"
+    # Unpack target_scope_id for side system support (again for followup)
+    if isinstance(target_scope_id, tuple):
+        if len(target_scope_id) == 3:
+            _, side_id, sub_id = target_scope_id
+        elif len(target_scope_id) == 2:
+            _, side_id = target_scope_id
+            sub_id = None
+        else:
+            side_id = None
+            sub_id = None
+    else:
+        side_id = None
+        sub_id = target_scope_id
     await interaction.followup.send(
-        f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting with co-fronts: {co_names} in {get_scope_label(target_scope_id)}.",
+        f"Member **{resolved_member.get('name', resolved_member_id)}** is now fronting with co-fronts: {co_names} in {get_scope_label(side_id, sub_id)}.",
         ephemeral=True
     )
 
@@ -3328,14 +3504,14 @@ async def setstatus(
     target_member = None
     if member_id:
         if member_id not in members_dict:
-            await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+            await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
             return
         target_member = members_dict[member_id]
     else:
         active = [m for m in members_dict.values() if m.get("current_front")]
         if not active:
             await interaction.response.send_message(
-                f"No one is currently fronting in {get_scope_label(subsystem_id)}.",
+                f"No one is currently fronting in {get_scope_label(None, subsystem_id)}.",
                 ephemeral=True
             )
             return
@@ -3349,7 +3525,7 @@ async def setstatus(
 
     if not target_member.get("current_front"):
         await interaction.response.send_message(
-            f"**{target_member['name']}** is not currently fronting in {get_scope_label(subsystem_id)}.",
+            f"**{target_member['name']}** is not currently fronting in {get_scope_label(None, subsystem_id)}.",
             ephemeral=True
         )
         return
@@ -3394,7 +3570,7 @@ async def currentfronts(interaction: discord.Interaction, subsystem_id: str = No
             await interaction.response.send_message("Subsystem not found.", ephemeral=True)
             return
         scope_sets = [(subsystem_id, members_dict)]
-        title = f"Current Fronts - {get_scope_label(subsystem_id).capitalize()}"
+        title = f"Current Fronts - {get_scope_label(None, subsystem_id).capitalize()}"
 
     fronters = []
     for scope_id, scoped_members in scope_sets:
@@ -3464,7 +3640,7 @@ async def fronthistory(interaction: discord.Interaction, subsystem_id: str = Non
     page_size = 10
     total_pages = (len(history_entries) - 1) // page_size + 1
 
-    scope_label = get_scope_label(subsystem_id).capitalize()
+    scope_label = get_scope_label(None, subsystem_id).capitalize()
 
     def _build_history_container(page):
         start_index = page * page_size
@@ -3771,16 +3947,16 @@ async def memberstats(interaction: discord.Interaction, member_id: str, subsyste
     ms_container = discord.ui.Container(accent_colour=_cv2_color(member_color_hex))
     ms_container.add_item(discord.ui.TextDisplay(f"### Member Stats \u2014 {member.get('name', 'Unknown')}"))
     ms_container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
-    ms_container.add_item(discord.ui.TextDisplay(
+    ms_container.add_item(discord.TextDisplay(
         f"**Front Time**\nTotal: {format_duration(total_front_seconds)}"
     ))
     ms_container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
-    ms_container.add_item(discord.ui.TextDisplay(
+    ms_container.add_item(discord.TextDisplay(
         f"**Sessions**\nTotal Fronts: {sessions}\nAverage Session: {format_duration(avg)}\nLongest Session: {format_duration(longest)}"
     ))
     if last_front:
-        ms_container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
-        ms_container.add_item(discord.ui.TextDisplay(f"**Last Front**\n{format_us(last_front)}"))
+        ms_container.add_item(discord.Separator(spacing=discord.SeparatorSpacing.small))
+        ms_container.add_item(discord.TextDisplay(f"**Last Front**\n{format_us(last_front)}"))
 
     await interaction.response.send_message(view=cv2_view(ms_container))
 # -----------------------------
@@ -3865,12 +4041,13 @@ async def browsetags(interaction: discord.Interaction, subsystem_id: str = None)
 # -----------------------------
 # View member
 # -----------------------------
-# /viewmember — View a member's profile card embed
+# /viewmember — View a member profile in a subsystem
 @tree.command(name="viewmember", description="View a member profile in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def viewmember(
     interaction: discord.Interaction,
     member_id: str,
+    side_id: str = None,
     subsystem_id: str = None,
     target_user_id: str = None,
 ):
@@ -3880,9 +4057,31 @@ async def viewmember(
         await interaction.response.send_message(error, ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
-    if members_dict is None or member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+    # Use new helper for side/subsystem
+    if side_id:
+        side = get_side_system(system, side_id)
+        if not side:
+            await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
+            return
+        if subsystem_id:
+            subs = side.get("subsystems", {})
+            if subsystem_id not in subs:
+                await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
+                return
+            members_dict = subs[subsystem_id]["members"]
+        else:
+            members_dict = side.get("members", {})
+    else:
+        if subsystem_id:
+            subsystems = system.get("subsystems", {})
+            if subsystem_id not in subsystems:
+                await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
+                return
+            members_dict = subsystems[subsystem_id]["members"]
+        else:
+            members_dict = system.get("members", {})
+    if member_id not in members_dict:
+        await interaction.response.send_message(f"Member not found in {get_scope_label(side_id, subsystem_id)}.", ephemeral=True)
         return
 
     member = members_dict[member_id]
@@ -3891,7 +4090,7 @@ async def viewmember(
         return
 
     await interaction.response.defer()
-    await interaction.followup.send(view=cv2_view(build_member_profile_cv2(member, system=system)))
+    await interaction.followup.send(view=cv2_view(build_member_profile_cv2(member, system=system, side_id=side_id, subsystem_id=subsystem_id)))
 
 # /random — View a random member from the system, optionally by privacy pool
 @tree.command(name="random", description="View a random member from your full system")
@@ -3959,6 +4158,7 @@ async def randommember(
 async def editmember(
     interaction: discord.Interaction,
     member_id: str,
+    side_id: str = None,
     subsystem_id: str = None,
     name: str = None,
     displayname: str = None,
@@ -3980,13 +4180,32 @@ async def editmember(
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
-    if members_dict is None:
-        await interaction.response.send_message("Subsystem not found.", ephemeral=True)
-        return
-
+    # Use new helper for side/subsystem
+    system = systems_data["systems"][system_id]
+    if side_id:
+        side = get_side_system(system, side_id)
+        if not side:
+            await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
+            return
+        if subsystem_id:
+            subs = side.get("subsystems", {})
+            if subsystem_id not in subs:
+                await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
+                return
+            members_dict = subs[subsystem_id]["members"]
+        else:
+            members_dict = side.get("members", {})
+    else:
+        if subsystem_id:
+            subsystems = system.get("subsystems", {})
+            if subsystem_id not in subsystems:
+                await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
+                return
+            members_dict = subsystems[subsystem_id]["members"]
+        else:
+            members_dict = system.get("members", {})
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(side_id, subsystem_id)}.", ephemeral=True)
         return
 
     member = members_dict[member_id]
@@ -4183,6 +4402,7 @@ async def removemembertag(
 async def editmemberimages(
     interaction: discord.Interaction,
     member_id: str,
+    side_id: str = None,
     subsystem_id: str = None,
     profile_pic: discord.Attachment = None,
     banner: discord.Attachment = None
@@ -4193,13 +4413,32 @@ async def editmemberimages(
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
-    if members_dict is None:
-        await interaction.response.send_message("Subsystem not found.", ephemeral=True)
-        return
-
+    # Use new helper for side/subsystem
+    system = systems_data["systems"][system_id]
+    if side_id:
+        side = get_side_system(system, side_id)
+        if not side:
+            await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
+            return
+        if subsystem_id:
+            subs = side.get("subsystems", {})
+            if subsystem_id not in subs:
+                await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
+                return
+            members_dict = subs[subsystem_id]["members"]
+        else:
+            members_dict = side.get("members", {})
+    else:
+        if subsystem_id:
+            subsystems = system.get("subsystems", {})
+            if subsystem_id not in subsystems:
+                await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
+                return
+            members_dict = subsystems[subsystem_id]["members"]
+        else:
+            members_dict = system.get("members", {})
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(side_id, subsystem_id)}.", ephemeral=True)
         return
 
     member = members_dict[member_id]
@@ -4230,10 +4469,11 @@ async def editmemberimages(
 # List all members
 # -----------------------------
 # /members — View a paginated list of members with front info
-@tree.command(name="members", description="View members with paging (main, subsystem, or whole system)")
+@tree.command(name="members", description="View members with paging (main, side, subsystem, or whole system)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def members_list(
     interaction: discord.Interaction,
+    side_id: str = None,
     subsystem_id: str = None,
     whole_system: bool = False,
     target_user_id: str = None,
@@ -4247,7 +4487,6 @@ async def members_list(
 
     def is_tracked(member):
         return not member.get("untracked", False)
-
     if whole_system:
         member_rows = []
         scoped_members_lookup = {}
@@ -4261,19 +4500,41 @@ async def members_list(
                 member_rows.append((scope_id, member_id, member))
         title_scope = "Entire System"
     else:
-        members_dict = get_system_members(system_id, subsystem_id)
-        if members_dict is None:
-            await interaction.followup.send("Subsystem not found.", ephemeral=True)
-            return
-        scoped_members_lookup = {subsystem_id: members_dict}
+        # Side system and/or subsystem support
+        if side_id:
+            side = get_side_system(system, side_id)
+            if not side:
+                await interaction.followup.send("Side system not found.", ephemeral=True)
+                return
+            if subsystem_id:
+                subs = side.get("subsystems", {})
+                if subsystem_id not in subs:
+                    await interaction.followup.send("Subsystem not found in side system.", ephemeral=True)
+                    return
+                members_dict = subs[subsystem_id]["members"]
+                title_scope = f"Side {side_id} > Subsystem {subsystem_id}"
+            else:
+                members_dict = side.get("members", {})
+                title_scope = f"Side {side_id}"
+        else:
+            if subsystem_id:
+                subsystems = system.get("subsystems", {})
+                if subsystem_id not in subsystems:
+                    await interaction.followup.send("Subsystem not found.", ephemeral=True)
+                    return
+                members_dict = subsystems[subsystem_id]["members"]
+                title_scope = f"Subsystem {subsystem_id}"
+            else:
+                members_dict = system.get("members", {})
+                title_scope = "Main System"
+        scoped_members_lookup = {subsystem_id or side_id: members_dict}
         member_rows = []
         for member_id, member in members_dict.items():
             if not is_tracked(member):
                 continue
             if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
                 continue
-            member_rows.append((subsystem_id, member_id, member))
-        title_scope = get_scope_label(subsystem_id).capitalize()
+            member_rows.append((subsystem_id or side_id, member_id, member))
 
     if not member_rows:
         await interaction.followup.send("No visible members found.", ephemeral=True)
@@ -4340,7 +4601,20 @@ async def members_list(
             containers = []
             # Limit to 10 containers per page to avoid exceeding 25-child limit
             for scope_id, member_id, m in page_members[:10]:
-                container = build_member_profile_cv2(m, system=self.scoped_members_lookup.get(scope_id))
+                # Unpack scope_id for side system support
+                if isinstance(scope_id, tuple):
+                    if len(scope_id) == 3:
+                        _, side_id, sub_id = scope_id
+                    elif len(scope_id) == 2:
+                        _, side_id = scope_id
+                        sub_id = None
+                    else:
+                        side_id = None
+                        sub_id = None
+                else:
+                    side_id = None
+                    sub_id = scope_id
+                container = build_member_profile_cv2(m, system=self.scoped_members_lookup.get(scope_id), side_id=side_id, subsystem_id=sub_id)
                 containers.append(container)
             if not containers:
                 empty = discord.ui.Container(accent_colour=_cv2_color("00FF00"))
@@ -4712,19 +4986,39 @@ async def addmembergroup(interaction: discord.Interaction, member_id: str, group
 # /removemembergroup — Remove a group assignment from a member
 @tree.command(name="removemembergroup", description="Remove a group from a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
-async def removemembergroup(interaction: discord.Interaction, member_id: str, group_id: str, subsystem_id: str = None):
+async def removemembergroup(interaction: discord.Interaction, member_id: str, group_id: str, side_id: str = None, subsystem_id: str = None):
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
-    if members_dict is None:
-        await interaction.response.send_message("Subsystem not found.", ephemeral=True)
-        return
+    # Use new helper for side/subsystem
+    system = systems_data["systems"][system_id]
+    if side_id:
+        side = get_side_system(system, side_id)
+        if not side:
+            await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
+            return
+        if subsystem_id:
+            subs = side.get("subsystems", {})
+            if subsystem_id not in subs:
+                await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
+                return
+            members_dict = subs[subsystem_id]["members"]
+        else:
+            members_dict = side.get("members", {})
+    else:
+        if subsystem_id:
+            subsystems = system.get("subsystems", {})
+            if subsystem_id not in subsystems:
+                await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
+                return
+            members_dict = subsystems[subsystem_id]["members"]
+        else:
+            members_dict = system.get("members", {})
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(side_id, subsystem_id)}.", ephemeral=True)
         return
 
     member = members_dict[member_id]
@@ -4972,20 +5266,39 @@ async def removetag(interaction: discord.Interaction, tag: str):
 # /removemember — Remove a single member with confirmation
 @tree.command(name="removemember", description="Remove a member from a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
-async def removemember(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
+async def removemember(interaction: discord.Interaction, member_id: str, side_id: str = None, subsystem_id: str = None):
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
-    if members_dict is None:
-        await interaction.response.send_message("Subsystem not found.", ephemeral=True)
-        return
-
+    # Use new helper for side/subsystem
+    system = systems_data["systems"][system_id]
+    if side_id:
+        side = get_side_system(system, side_id)
+        if not side:
+            await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
+            return
+        if subsystem_id:
+            subs = side.get("subsystems", {})
+            if subsystem_id not in subs:
+                await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
+                return
+            members_dict = subs[subsystem_id]["members"]
+        else:
+            members_dict = side.get("members", {})
+    else:
+        if subsystem_id:
+            subsystems = system.get("subsystems", {})
+            if subsystem_id not in subsystems:
+                await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
+                return
+            members_dict = subsystems[subsystem_id]["members"]
+        else:
+            members_dict = system.get("members", {})
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(side_id, subsystem_id)}.", ephemeral=True)
         return
 
     await interaction.response.send_message(
@@ -5000,20 +5313,39 @@ async def removemember(interaction: discord.Interaction, member_id: str, subsyst
 # /removemembers — Interactively select and remove multiple members
 @tree.command(name="removemembers", description="Remove multiple members at once (with confirmation) from a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
-async def removemembers(interaction: discord.Interaction, subsystem_id: str = None):
+async def removemembers(interaction: discord.Interaction, side_id: str = None, subsystem_id: str = None):
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
-    if members_dict is None:
-        await interaction.response.send_message("Subsystem not found.", ephemeral=True)
-        return
-
+    # Use new helper for side/subsystem
+    system = systems_data["systems"][system_id]
+    if side_id:
+        side = get_side_system(system, side_id)
+        if not side:
+            await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
+            return
+        if subsystem_id:
+            subs = side.get("subsystems", {})
+            if subsystem_id not in subs:
+                await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
+                return
+            members_dict = subs[subsystem_id]["members"]
+        else:
+            members_dict = side.get("members", {})
+    else:
+        if subsystem_id:
+            subsystems = system.get("subsystems", {})
+            if subsystem_id not in subsystems:
+                await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
+                return
+            members_dict = subsystems[subsystem_id]["members"]
+        else:
+            members_dict = system.get("members", {})
     if not members_dict:
-        await interaction.response.send_message(f"No members exist to remove in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"No members exist to remove in {get_scope_label(side_id, subsystem_id)}.", ephemeral=True)
         return
 
     view = MultiMemberView(members_dict)
