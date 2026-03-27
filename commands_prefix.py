@@ -1552,16 +1552,19 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
 
         containers = []
         for scope_id, member_id, member, subsystem_name in page_members:
-            # Minimal display: member name, member ID, and scope
+            # Forcibly display ONLY name, ID, and scope (strip all else)
             accent = _cv2_color(member.get("color"))
             container = discord.ui.Container(accent_colour=accent)
-            container.add_item(discord.ui.TextDisplay(f"### {member.get('name', 'Unnamed')}"))
-            # Scope label
+            # Name (no extra fields)
+            name = member.get('name', 'Unnamed')
+            container.add_item(discord.ui.TextDisplay(f"### {name}"))
+            # Scope label (no extra fields)
             from helpers import get_scope_label
             scope_label = get_scope_label(scope_id, None)
             container.add_item(discord.ui.TextDisplay(f"**Scope:** {scope_label}"))
-            # Member ID
+            # Member ID (no extra fields)
             container.add_item(discord.ui.TextDisplay(f"**Member ID:** {member_id}"))
+            # Do NOT add any other info, fields, or formatting
             containers.append(container)
         if not containers:
             empty = discord.ui.Container(accent_colour=_cv2_color("00FF00"))
