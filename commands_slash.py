@@ -4543,8 +4543,8 @@ async def members_list(
     sort_mode = get_member_sort_mode(system)
     member_rows = sort_member_rows(member_rows, sort_mode)
 
-    # Limit members per page to avoid exceeding Discord's 40-child UI limit (each member = 3 items, 2 nav buttons, 1 select)
-    members_per_page = 11
+    # Limit members per page to avoid exceeding Discord's 25 top-level UI item limit (each member = 1 container, 2 nav ActionRows)
+    members_per_page = 10
     total_pages = (len(member_rows) - 1) // members_per_page + 1 if member_rows else 1
 
     page = 1  # start at page 1
@@ -4600,8 +4600,8 @@ async def members_list(
             page_members = self.member_rows[start_idx:end_idx]
 
             containers = []
-            # Strictly limit to 11 containers per page (each = 3 UI items, 33 total, plus nav/buttons/select)
-            for scope_id, member_id, m in page_members[:11]:
+            # Strictly limit to 10 containers per page (each = 1 UI item, plus nav/buttons/select)
+            for scope_id, member_id, m in page_members[:10]:
                 # Unpack scope_id for side system support
                 if isinstance(scope_id, tuple):
                     if len(scope_id) == 3:
