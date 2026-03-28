@@ -1,15 +1,14 @@
+"""Slash commands for the Cortex Discord bot."""
+
 import discord
 from discord import app_commands
-from discord.ext import commands
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-import asyncio
 import json
 import os
 import random
-from copy import deepcopy
-import urllib.request
 import urllib.error
+from copy import deepcopy
 
 from config import (
     bot, tree, JSON_FILE, TAGS_FILE, EXTERNAL_TARGET_LIMIT_SECONDS,
@@ -24,6 +23,7 @@ from helpers import (
     get_user_system_id,
     get_system_members,
     get_scope_label,
+    scope_id_label,
     get_system_profile,
     get_system_proxy_tag,
     get_external_settings,
@@ -154,6 +154,7 @@ async def createsidesubsystem(
     side_id: str,
     subsystem_name: str
 ):
+    """Create a new subsystem within a side system."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -179,19 +180,6 @@ async def createsidesubsystem(
                 if candidate not in existing:
                     return candidate
             length += 1
-    next_sub_id = next_subsystem_id(subsystems)
-    subsystems[next_sub_id] = {
-        "subsystem_name": subsystem_name,
-        "members": {},
-        "description": None,
-        "color": "00DE9B"
-    }
-    save_systems()
-    await interaction.response.defer(ephemeral=True)
-    await interaction.followup.send(
-        f"Subsystem **{subsystem_name}** created in side system `{side_id}` with ID `{next_sub_id}`.",
-        ephemeral=True
-    )
     next_sub_id = next_subsystem_id(subsystems)
     subsystems[next_sub_id] = {
         "subsystem_name": subsystem_name,
@@ -493,6 +481,7 @@ async def register(
     system_name: str = None,
     mode: str = "system"
 ):
+    """Register a new system or singlet profile for the calling user."""
     user_id = interaction.user.id
     if get_user_system_id(user_id):
         await interaction.response.send_message("You already have a registered profile.", ephemeral=True)
@@ -501,8 +490,6 @@ async def register(
     resolved_system_name = (system_name or "").strip()
     if not resolved_system_name:
         resolved_system_name = (interaction.user.display_name or interaction.user.name or "Unnamed").strip()
-
-    await interaction.response.defer(ephemeral=True)
 
     await interaction.response.defer(ephemeral=True)
 
@@ -584,6 +571,7 @@ async def createsubsystem(
     interaction: discord.Interaction,
     subsystem_name: str
 ):
+    """Create a new subsystem under the main system."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -627,6 +615,7 @@ async def editsubsystem(
     subsystem_id: str,
     new_name: str
 ):
+    """Rename an existing subsystem."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -658,6 +647,7 @@ async def viewsubsystemcard(
     show_to_others: bool = False,
     target_user_id: str = None,
 ):
+    """Display a subsystem's profile card."""
     requester_id = interaction.user.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
@@ -692,6 +682,7 @@ async def editsubsystemcard(
     clear_profile_pic: bool = False,
     clear_banner: bool = False
 ):
+    """Edit a subsystem's description, color, or image."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -753,6 +744,7 @@ async def listsubsystems(
     show_to_others: bool = False,
     target_user_id: str = None,
 ):
+    """List all subsystems with their IDs across main and side systems."""
     requester_id = interaction.user.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
@@ -807,6 +799,7 @@ async def listsubsystems(
 # /systemtag — Set, clear, or view the system-level proxy tag
 @tree.command(name="systemtag", description="Set, clear, or view your system-level proxy tag")
 async def systemtag(interaction: discord.Interaction, tag: str = None, clear: bool = False):
+    """Set, clear, or view the system-level proxy tag."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -841,7 +834,9 @@ async def systemtag(interaction: discord.Interaction, tag: str = None, clear: bo
         await interaction.response.send_message("No system tag set. Use /systemtag tag:<value> to set one.", ephemeral=True)
 
 
+@tree.command(name="systemprivacy", description="Set the system-wide privacy level")
 async def systemprivacy(interaction: discord.Interaction, level: str):
+    """Set the system-wide privacy level."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -870,19 +865,21 @@ async def systemprivacy(interaction: discord.Interaction, level: str):
     )
 
 
+@tree.command(name="alterprivacy", description="Set the privacy level for a single member")
 async def alterprivacy(
     interaction: discord.Interaction,
     member_id: str,
     level: str,
     subsystem_id: str = None,
 ):
+    """Set the privacy level for a single member."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register first using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -917,13 +914,14 @@ async def bulkalterprivacy(
     level: str,
     subsystem_id: str = None,
 ):
+    """Set the privacy level for all members in a scope at once."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register first using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -972,6 +970,7 @@ import io
 # /exportsystem — Export the entire system as a downloadable JSON file
 @tree.command(name="exportsystem", description="Export your entire system (including subsystems and members) as a JSON file")
 async def exportsystem(interaction: discord.Interaction):
+    """Export the entire system hierarchy as a JSON file."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -996,6 +995,7 @@ async def exportsystem(interaction: discord.Interaction):
 # /importsystem — Import a system from a previously exported JSON file
 @tree.command(name="importsystem", description="Import a system from a JSON file (including subsystems and members)")
 async def importsystem(interaction: discord.Interaction, file: discord.Attachment):
+    """Import a system from a JSON file attachment."""
     user_id = interaction.user.id
     if get_user_system_id(user_id):
         await interaction.response.send_message("You already have a registered system. Delete it first to import.", ephemeral=True)
@@ -1110,7 +1110,9 @@ async def importsystem(interaction: discord.Interaction, file: discord.Attachmen
     )
 
 
+@tree.command(name="privacystatus", description="View privacy levels for all members in the system")
 async def privacystatus(interaction: discord.Interaction):
+    """View privacy levels for all members in the system."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1175,6 +1177,7 @@ async def viewsystemcard(
     show_to_others: bool = False,
     target_user_id: str = None,
 ):
+    """Display the system profile card."""
     requester_id = interaction.user.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
@@ -1201,6 +1204,7 @@ async def editsystemcard(
     clear_profile_pic: bool = False,
     clear_banner: bool = False
 ):
+    """Edit the system profile card details."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1264,6 +1268,7 @@ async def serveridentity(
     clear_system_tag: bool = False,
     clear_profile_pic: bool = False,
 ):
+    """Set server-specific system display name, tag, or icon."""
     if interaction.guild_id is None:
         await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
         return
@@ -1328,8 +1333,8 @@ async def serveridentity(
     await interaction.response.send_message("\n".join(changed), ephemeral=True)
 
 # /serveridentitystatus — View effective system identity for this server
-@tree.command(name="serveridentitystatus", description="View effective system tag, display name, and icon for this server")
 async def serveridentitystatus(interaction: discord.Interaction):
+    """View the effective server identity settings."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1383,6 +1388,7 @@ async def servermemberidentity(
     clear_system_tag: bool = False,
     clear_profile_pic: bool = False,
 ):
+    """Set server-specific identity overrides for a member."""
     if interaction.guild_id is None:
         await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
         return
@@ -1464,12 +1470,12 @@ async def servermemberidentity(
     await interaction.response.send_message("\n".join(changed), ephemeral=True)
 
 # /servermemberidentitystatus — View effective server identity for a member
-@tree.command(name="servermemberidentitystatus", description="View effective server-specific identity values for one member")
 async def servermemberidentitystatus(
     interaction: discord.Interaction,
     member_id: str,
     subsystem_id: str = None,
 ):
+    """View server-specific identity values for a member."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1569,6 +1575,7 @@ async def addmember(
     color: str = None,
     proxy_tag: str = None
 ):
+    """Add a new member to the specified scope."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1579,7 +1586,6 @@ async def addmember(
     if side_id:
         side = get_side_system(system, side_id)
         if not side:
-            await interaction.response.defer(ephemeral=True)
             await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
             return
         if subsystem_id:
@@ -1669,6 +1675,7 @@ async def movemember(
     to_subsystem_id: str = None,
     from_subsystem_id: str = None,
 ):
+    """Move a member between scopes (main, side, subsystem)."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1725,6 +1732,7 @@ async def importpluralkit(
     overwrite_existing: bool = False,
     dry_run: bool = False,
 ):
+    """Import members from PluralKit using a system token."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1736,12 +1744,10 @@ async def importpluralkit(
         await interaction.response.send_message("System not found.", ephemeral=True)
         return
 
-    members = get_system_members(system_id, subsystem_id)
+    members = get_system_members(system_id, subsystem_id=subsystem_id)
     if members is None:
         await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
         return
-
-    await interaction.response.defer(ephemeral=True)
 
     await interaction.response.defer(ephemeral=True)
 
@@ -1899,7 +1905,7 @@ async def importpluralkit(
     if not dry_run:
         save_system(system_id)
 
-    scope_label = get_scope_label(subsystem_id)
+    scope_label = get_scope_label(None, subsystem_id)
     mode_label = "Dry Run (no changes saved)" if dry_run else "Import Complete"
     if imported_system_tag:
         system_tag_text = (
@@ -1926,16 +1932,16 @@ async def importpluralkit(
 # Switch member
 # -----------------------------
 # /messageto — Send an internal inbox message to a member
-@tree.command(name="messageto", description="Send a message to a member in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def messageto(interaction: discord.Interaction, member_id: str, message: str, subsystem_id: str = None):
+    """Send an external message to a member in another system."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -1969,6 +1975,7 @@ async def messageto(interaction: discord.Interaction, member_id: str, message: s
 # /allowexternal — Toggle receiving external messages from other systems
 @tree.command(name="allowexternal", description="Enable or disable receiving messages from other systems")
 async def allowexternal(interaction: discord.Interaction, enabled: bool):
+    """Enable or disable receiving external messages."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1995,6 +2002,7 @@ async def allowexternal(interaction: discord.Interaction, enabled: bool):
     app_commands.Choice(name="DM Only (details only in DM)", value="dm_only"),
 ])
 async def externalprivacy(interaction: discord.Interaction, mode: str):
+    """Set how external inbox messages appear on switch."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2014,6 +2022,7 @@ async def externalprivacy(interaction: discord.Interaction, mode: str):
 # /externalstatus — View external messaging safety and limit settings
 @tree.command(name="externalstatus", description="View external messaging safety settings")
 async def externalstatus(interaction: discord.Interaction, show_to_others: bool = False):
+    """View external messaging safety settings."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2049,7 +2058,9 @@ async def externalstatus(interaction: discord.Interaction, show_to_others: bool 
         ephemeral=not show_to_others
     )
 
+@tree.command(name="externallimits", description="Set rate limits for incoming external messages")
 async def externallimits(interaction: discord.Interaction, max_chars: int = 1500, target_cooldown_seconds: int = EXTERNAL_TARGET_LIMIT_SECONDS):
+    """Set rate limits for incoming external messages."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2072,6 +2083,7 @@ async def externallimits(interaction: discord.Interaction, max_chars: int = 1500
     )
 
 async def tempblockedusers(interaction: discord.Interaction):
+    """List temporarily blocked external senders."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2088,7 +2100,9 @@ async def tempblockedusers(interaction: discord.Interaction):
     lines = [f"- {uid} until {until}" for uid, until in blocks.items()]
     await interaction.response.send_message("Temporary blocks:\n" + "\n".join(lines), ephemeral=True)
 
+@tree.command(name="externaltrustedonly", description="Set whether external messages require trusted status")
 async def externaltrustedonly(interaction: discord.Interaction, enabled: bool):
+    """Toggle trusted-senders-only mode."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2104,7 +2118,9 @@ async def externaltrustedonly(interaction: discord.Interaction, enabled: bool):
     state = "enabled" if enabled else "disabled"
     await interaction.response.send_message(f"Trusted-senders-only mode is now **{state}**.", ephemeral=True)
 
+@tree.command(name="trustuser", description="Mark a user as trusted for external messages")
 async def trustuser(interaction: discord.Interaction, user_id: str):
+    """Add a user to the trusted senders list."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2123,7 +2139,9 @@ async def trustuser(interaction: discord.Interaction, user_id: str):
         save_systems()
     await interaction.response.send_message(f"Trusted user added: `{parsed}`.", ephemeral=True)
 
+@tree.command(name="untrustuser", description="Unmark a user as trusted for external messages")
 async def untrustuser(interaction: discord.Interaction, user_id: str):
+    """Remove a user from the trusted senders list."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2142,7 +2160,9 @@ async def untrustuser(interaction: discord.Interaction, user_id: str):
         save_systems()
     await interaction.response.send_message(f"Trusted user removed: `{parsed}`.", ephemeral=True)
 
+@tree.command(name="trustedusers", description="List all trusted external senders")
 async def trustedusers(interaction: discord.Interaction):
+    """List all trusted external senders."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2155,7 +2175,9 @@ async def trustedusers(interaction: discord.Interaction):
         return
     await interaction.response.send_message("Trusted users:\n" + "\n".join([f"- {u}" for u in trusted]), ephemeral=True)
 
+@tree.command(name="frienduser", description="Mark a user as a friend")
 async def frienduser(interaction: discord.Interaction, user_id: str):
+    """Add a user to the friends list."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2174,7 +2196,9 @@ async def frienduser(interaction: discord.Interaction, user_id: str):
         save_systems()
     await interaction.response.send_message(f"Friend user added: `{parsed}`.", ephemeral=True)
 
+@tree.command(name="unfrienduser", description="Unmark a user as a friend")
 async def unfrienduser(interaction: discord.Interaction, user_id: str):
+    """Remove a user from the friends list."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2193,7 +2217,9 @@ async def unfrienduser(interaction: discord.Interaction, user_id: str):
         save_systems()
     await interaction.response.send_message(f"Friend user removed: `{parsed}`.", ephemeral=True)
 
+@tree.command(name="friendusers", description="List all friend users")
 async def friendusers(interaction: discord.Interaction):
+    """List all friended users."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2209,6 +2235,7 @@ async def friendusers(interaction: discord.Interaction):
 # /muteuser — Silently ignore external messages from a user
 @tree.command(name="muteuser", description="Mute a Discord user for external messages (quietly ignore)")
 async def muteuser(interaction: discord.Interaction, user_id: str):
+    """Silently ignore external messages from a user."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2230,6 +2257,7 @@ async def muteuser(interaction: discord.Interaction, user_id: str):
 # /unmuteuser — Remove a user from the external messages mute list
 @tree.command(name="unmuteuser", description="Unmute a Discord user for external messages")
 async def unmuteuser(interaction: discord.Interaction, user_id: str):
+    """Stop ignoring external messages from a user."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2248,7 +2276,9 @@ async def unmuteuser(interaction: discord.Interaction, user_id: str):
         save_systems()
     await interaction.response.send_message(f"Unmuted user ID `{parsed}`.", ephemeral=True)
 
+@tree.command(name="mutedusers", description="List all muted external senders")
 async def mutedusers(interaction: discord.Interaction):
+    """List all muted external senders."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2264,6 +2294,7 @@ async def mutedusers(interaction: discord.Interaction):
 # /tempblockuser — Temporarily block a user from external messaging
 @tree.command(name="tempblockuser", description="Temporarily block a user from external messaging")
 async def tempblockuser(interaction: discord.Interaction, user_id: str, hours: int = 24):
+    """Temporarily block a user from external messaging."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2284,6 +2315,7 @@ async def tempblockuser(interaction: discord.Interaction, user_id: str, hours: i
     await interaction.response.send_message(f"Temporarily blocked `{parsed}` for {hours} hour(s).", ephemeral=True)
 
 async def externalpending(interaction: discord.Interaction):
+    """View pending external message requests."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2301,7 +2333,9 @@ async def externalpending(interaction: discord.Interaction):
     lines = [f"- {sid}: {count} message(s)" for sid, count in counts.items()]
     await interaction.response.send_message("Pending sender queue:\n" + "\n".join(lines), ephemeral=True)
 
+@tree.command(name="approveexternal", description="Approve or reject a pending external message")
 async def approveexternal(interaction: discord.Interaction, user_id: str, approve: bool = True):
+    """Approve a pending external message request."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2352,6 +2386,7 @@ async def approveexternal(interaction: discord.Interaction, user_id: str, approv
     )
 
 async def recentexternal(interaction: discord.Interaction, limit: int = 10):
+    """View recently received external messages."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2374,7 +2409,9 @@ async def recentexternal(interaction: discord.Interaction, limit: int = 10):
         lines.append(f"- {ts} | {action} | sender={sender} {details}")
     await interaction.response.send_message("Recent external events:\n" + "\n".join(lines), ephemeral=True)
 
+@tree.command(name="externalquiethours", description="Set quiet hours for external messages")
 async def externalquiethours(interaction: discord.Interaction, enabled: bool, start_hour: int = 23, end_hour: int = 7):
+    """Set quiet hours for external message delivery."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2395,6 +2432,7 @@ async def externalquiethours(interaction: discord.Interaction, enabled: bool, st
 # /externalretention — Set how many days external inbox messages are kept
 @tree.command(name="externalretention", description="Set external inbox retention period in days")
 async def externalretention(interaction: discord.Interaction, days: int):
+    """Set how many days to retain external inbox entries."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2413,6 +2451,7 @@ async def externalretention(interaction: discord.Interaction, days: int):
 # /reportexternal — Report an external sender for abuse
 @tree.command(name="reportexternal", description="Report abuse from an external sender")
 async def reportexternal(interaction: discord.Interaction, user_id: str, reason: str):
+    """Report abuse from an external sender."""
     reporter_id = interaction.user.id
     parsed = parse_discord_user_id(user_id)
     if not parsed:
@@ -2442,7 +2481,9 @@ async def reportexternal(interaction: discord.Interaction, user_id: str, reason:
         ephemeral=True
     )
 
+@tree.command(name="modreports", description="View abuse reports (admin only)")
 async def modreports(interaction: discord.Interaction, limit: int = 15):
+    """View recent moderation reports (admin only)."""
     if not await ensure_moderator(interaction):
         return
     if limit < 1 or limit > 50:
@@ -2459,7 +2500,9 @@ async def modreports(interaction: discord.Interaction, limit: int = 15):
         )
     await interaction.response.send_message("Open reports:\n" + "\n".join(lines), ephemeral=True)
 
+@tree.command(name="modwarn", description="Warn a user (admin only)")
 async def modwarn(interaction: discord.Interaction, user_id: str, reason: str = "No reason provided"):
+    """Issue a warning to a user (admin only)."""
     if not await ensure_moderator(interaction):
         return
     parsed = parse_discord_user_id(user_id)
@@ -2476,11 +2519,13 @@ async def modwarn(interaction: discord.Interaction, user_id: str, reason: str = 
         ephemeral=True
     )
 
+@tree.command(name="modsuspend", description="Suspend a user (admin only)")
 @app_commands.choices(scope=[
     app_commands.Choice(name="External messaging only", value="external"),
     app_commands.Choice(name="All bot commands", value="all"),
 ])
 async def modsuspend(interaction: discord.Interaction, user_id: str, hours: int = 24, scope: str = "external", reason: str = "No reason provided"):
+    """Suspend a user's bot access (admin only)."""
     if not await ensure_moderator(interaction):
         return
     parsed = parse_discord_user_id(user_id)
@@ -2498,11 +2543,13 @@ async def modsuspend(interaction: discord.Interaction, user_id: str, hours: int 
     save_systems()
     await interaction.response.send_message(f"Suspended `{parsed}` for {hours} hour(s), scope={scope}.", ephemeral=True)
 
+@tree.command(name="modban", description="Ban a user from the bot (admin only)")
 @app_commands.choices(scope=[
     app_commands.Choice(name="External messaging", value="external"),
     app_commands.Choice(name="Full bot", value="all"),
 ])
 async def modban(interaction: discord.Interaction, user_id: str, scope: str = "external", reason: str = "No reason provided"):
+    """Ban a user from the bot (admin only)."""
     if not await ensure_moderator(interaction):
         return
     parsed = parse_discord_user_id(user_id)
@@ -2519,7 +2566,9 @@ async def modban(interaction: discord.Interaction, user_id: str, scope: str = "e
     save_systems()
     await interaction.response.send_message(f"Banned `{parsed}` for scope={scope}.", ephemeral=True)
 
+@tree.command(name="modunban", description="Unban a user (admin only)")
 async def modunban(interaction: discord.Interaction, user_id: str, clear_warnings: bool = False):
+    """Unban a user from the bot (admin only)."""
     if not await ensure_moderator(interaction):
         return
     parsed = parse_discord_user_id(user_id)
@@ -2537,7 +2586,9 @@ async def modunban(interaction: discord.Interaction, user_id: str, clear_warning
     save_systems()
     await interaction.response.send_message(f"Cleared bans/suspensions for `{parsed}`.", ephemeral=True)
 
+@tree.command(name="modappeal", description="Appeal a moderation action")
 async def modappeal(interaction: discord.Interaction, message: str):
+    """Submit an appeal for a moderation action."""
     user_id = interaction.user.id
     if len(message.strip()) < 5:
         await interaction.response.send_message("Please provide a longer appeal message.", ephemeral=True)
@@ -2549,6 +2600,7 @@ async def modappeal(interaction: discord.Interaction, message: str):
 # /blockuser — Block a user from sending external messages to you
 @tree.command(name="blockuser", description="Block a Discord user from sending your system external messages")
 async def blockuser(interaction: discord.Interaction, user_id: str):
+    """Block a user from sending external messages."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2584,6 +2636,7 @@ async def blockuser(interaction: discord.Interaction, user_id: str):
 # /unblockuser — Remove a user from the external messages block list
 @tree.command(name="unblockuser", description="Unblock a Discord user for external messages")
 async def unblockuser(interaction: discord.Interaction, user_id: str):
+    """Unblock a user for external messages."""
     owner_id = interaction.user.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -2612,7 +2665,9 @@ async def unblockuser(interaction: discord.Interaction, user_id: str):
     await interaction.response.defer(ephemeral=True)
     await interaction.followup.send(f"Unblocked user ID `{parsed_user_id}`.", ephemeral=True)
 
+@tree.command(name="blockedusers", description="List all blocked external senders")
 async def blockedusers(interaction: discord.Interaction):
+    """List all blocked external senders."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2643,6 +2698,7 @@ async def sendexternal(
     message: str,
     target_subsystem_id: str = None
 ):
+    """Send an external message to a member in another system."""
     sender_user_id = interaction.user.id
     sender_system_id = get_user_system_id(sender_user_id)
     if not sender_system_id:
@@ -2799,14 +2855,15 @@ async def sendexternal(
 @app_commands.autocomplete(member_id=switchmember_member_id_autocomplete)
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def switchmember(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
+    """Log a member as currently fronting."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
-    members = get_system_members(system_id, subsystem_id)
+    members = get_system_members(system_id, subsystem_id=subsystem_id)
     if members is None:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     resolved_member_id, resolved_member, resolve_error = resolve_member_identifier(members, member_id)
@@ -2881,6 +2938,7 @@ async def switchmember(interaction: discord.Interaction, member_id: str, subsyst
 @app_commands.describe(member="Member name or ID", subsystem_id="Subsystem to search (leave blank to search entire system)")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def cofrontmember(interaction: discord.Interaction, member: str, subsystem_id: str = None):
+    """Interactively select co-fronting members."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2960,6 +3018,7 @@ async def cofrontmember(interaction: discord.Interaction, member: str, subsystem
     app_commands.Choice(name="Latch (last tagged proxy)", value="latch"),
 ])
 async def globalautoproxy(interaction: discord.Interaction, mode: str):
+    """Set the global autoproxy mode: off, front, or latch."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2993,6 +3052,7 @@ async def globalautoproxy(interaction: discord.Interaction, mode: str):
     app_commands.Choice(name="Latch (last tagged proxy)", value="latch"),
 ])
 async def autoproxy_server(interaction: discord.Interaction, mode: str):
+    """Set per-server autoproxy mode, overriding global settings."""
     await interaction.response.defer(ephemeral=True)
     if interaction.guild_id is None:
         await interaction.followup.send("This command can only be used in a server.", ephemeral=True)
@@ -3035,6 +3095,7 @@ async def autoproxy_server(interaction: discord.Interaction, mode: str):
 # /autoproxystatus — View effective global and server autoproxy settings
 @tree.command(name="autoproxystatus", description="View effective global/server autoproxy settings")
 async def autoproxystatus(interaction: discord.Interaction):
+    """View effective autoproxy settings for global and current server."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3072,6 +3133,7 @@ async def autoproxystatus(interaction: discord.Interaction):
 # /frontreminders — Toggle DM reminders for long fronting sessions
 @tree.command(name="frontreminders", description="Enable or disable DM reminders for long fronting sessions")
 async def frontreminders(interaction: discord.Interaction, enabled: bool):
+    """Enable or disable DM reminders for long fronting sessions."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3097,6 +3159,7 @@ async def frontreminders(interaction: discord.Interaction, enabled: bool):
 # /setfrontreminderhours — Set the front duration threshold for DM reminders
 @tree.command(name="setfrontreminderhours", description="Set the DM reminder threshold in hours")
 async def setfrontreminderhours(interaction: discord.Interaction, hours: int):
+    """Set the fronting duration threshold for DM reminders."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3124,6 +3187,7 @@ async def setfrontreminderhours(interaction: discord.Interaction, hours: int):
 # /frontreminderstatus — View current front reminder settings
 @tree.command(name="frontreminderstatus", description="View your DM front reminder settings")
 async def frontreminderstatus(interaction: discord.Interaction):
+    """View current front reminder settings."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3146,6 +3210,7 @@ async def frontreminderstatus(interaction: discord.Interaction):
 # /birthdayreminders — Toggle DM birthday reminders on or off
 @tree.command(name="birthdayreminders", description="Enable or disable DM birthday reminders")
 async def birthdayreminders(interaction: discord.Interaction, enabled: bool):
+    """Enable or disable DM birthday reminders."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3173,6 +3238,7 @@ async def birthdayreminders(interaction: discord.Interaction, enabled: bool):
 # /setbirthdayreminderdays — Set how many days before birthdays to remind
 @tree.command(name="setbirthdayreminderdays", description="Set DM birthday reminder offsets in days (comma-separated)")
 async def setbirthdayreminderdays(interaction: discord.Interaction, days: str):
+    """Set how many days before a birthday to send reminders."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3229,6 +3295,7 @@ async def setbirthdayreminderdays(interaction: discord.Interaction, days: str):
 # /birthdayreminderstatus — View current birthday reminder settings
 @tree.command(name="birthdayreminderstatus", description="View your DM birthday reminder settings")
 async def birthdayreminderstatus(interaction: discord.Interaction):
+    """View current birthday reminder settings."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3262,6 +3329,7 @@ async def birthdayreminderstatus(interaction: discord.Interaction):
     app_commands.Choice(name="Very High", value="very_high"),
 ])
 async def checkin(interaction: discord.Interaction, rating: int, energy: str, notes: str = None):
+    """Log a mood check-in with rating, energy, and optional note."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3308,6 +3376,7 @@ async def checkin(interaction: discord.Interaction, rating: int, energy: str, no
 # /weeklymoodsummary — Toggle weekly mood summary DMs on or off
 @tree.command(name="weeklymoodsummary", description="Enable or disable weekly mood summary DMs")
 async def weeklymoodsummary(interaction: discord.Interaction, enabled: bool):
+    """Enable or disable weekly mood summary DMs."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3327,8 +3396,8 @@ async def weeklymoodsummary(interaction: discord.Interaction, enabled: bool):
     await interaction.response.send_message(f"Weekly mood summary DMs are now **{status}**.", ephemeral=True)
 
 # /checkinstatus — View check-in settings and recent mood trend
-@tree.command(name="checkinstatus", description="View your current check-in settings and trend")
 async def checkinstatus(interaction: discord.Interaction):
+    """View current check-in settings and mood trend."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3373,6 +3442,7 @@ async def setmode(
     mode_name: str = None,
     clear: bool = False,
 ):
+    """Set the current focus mode (singlet only)."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3420,8 +3490,8 @@ async def setmode(
     )
 
 # /currentmode — View the active focus mode and elapsed time
-@tree.command(name="currentmode", description="View your current focus mode (singlet only)")
 async def currentmode(interaction: discord.Interaction):
+    """View the current active focus mode."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3452,8 +3522,8 @@ async def currentmode(interaction: discord.Interaction):
     )
 
 # /modestats — View time breakdown per focus mode over a period
-@tree.command(name="modestats", description="View time spent in each focus mode (singlet only)")
 async def modestats(interaction: discord.Interaction, days: int = 30):
+    """View time spent in each focus mode."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3500,6 +3570,7 @@ async def modestats(interaction: discord.Interaction, days: int = 30):
 @tree.command(name="settimezone", description="Set your system timezone (IANA, e.g. America/New_York)")
 @app_commands.autocomplete(timezone_name=timezone_autocomplete)
 async def settimezone(interaction: discord.Interaction, timezone_name: str):
+    """Set the system timezone (IANA format)."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3537,8 +3608,8 @@ async def settimezone(interaction: discord.Interaction, timezone_name: str):
     await interaction.response.send_message(f"Timezone set to **{normalized}**.", ephemeral=True)
 
 # /timezonestatus — View the current system timezone
-@tree.command(name="timezonestatus", description="View your current system timezone")
 async def timezonestatus(interaction: discord.Interaction, show_to_others: bool = False):
+    """View the current system timezone."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3566,13 +3637,14 @@ async def setstatus(
     subsystem_id: str = None,
     clear: bool = False,
 ):
+    """Set or clear a front status message for a fronting member."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -3638,6 +3710,7 @@ async def setstatus(
 @tree.command(name="currentfronts", description="View current fronting members in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def currentfronts(interaction: discord.Interaction, subsystem_id: str = None):
+    """View all currently fronting members."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3652,7 +3725,7 @@ async def currentfronts(interaction: discord.Interaction, subsystem_id: str = No
         scope_sets = list(iter_system_member_dicts(system))
         title = "Current Fronts - Entire System"
     else:
-        members_dict = get_system_members(system_id, subsystem_id)
+        members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
         if members_dict is None:
             await interaction.response.send_message("Subsystem not found.", ephemeral=True)
             return
@@ -3661,7 +3734,7 @@ async def currentfronts(interaction: discord.Interaction, subsystem_id: str = No
 
     fronters = []
     for scope_id, scoped_members in scope_sets:
-        scope_label = get_scope_label(scope_id)
+        scope_label = scope_id_label(scope_id)
         for m in scoped_members.values():
             current = m.get("current_front")
             if not current:
@@ -3690,12 +3763,13 @@ async def currentfronts(interaction: discord.Interaction, subsystem_id: str = No
 @tree.command(name="fronthistory", description="View recent front history for a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def fronthistory(interaction: discord.Interaction, subsystem_id: str = None):
+    """View recent front history entries."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -3789,12 +3863,13 @@ async def fronthistory(interaction: discord.Interaction, subsystem_id: str = Non
 @tree.command(name="frontstats", description="Show front duration statistics for members in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def frontstats(interaction: discord.Interaction, subsystem_id: str = None):
+    """Show front duration statistics per member."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -3815,7 +3890,7 @@ async def frontstats(interaction: discord.Interaction, subsystem_id: str = None)
     page_size = 10
     total_pages = (len(stats) - 1) // page_size + 1
 
-    stats_scope_label = get_scope_label(subsystem_id).capitalize()
+    stats_scope_label = get_scope_label(None, subsystem_id).capitalize()
 
     def _build_stats_container(page):
         start = page * page_size
@@ -3870,6 +3945,7 @@ async def frontstats(interaction: discord.Interaction, subsystem_id: str = None)
 # /switchpatterns — Analyze switch pairs, co-fronts, and time-of-day patterns
 @tree.command(name="switchpatterns", description="Show switch pair, co-front, and time-of-day fronting patterns")
 async def switchpatterns(interaction: discord.Interaction):
+    """Analyze switch pair, co-front, and time-of-day patterns."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3987,19 +4063,20 @@ async def switchpatterns(interaction: discord.Interaction):
 @tree.command(name="memberstats", description="View fronting statistics for a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def memberstats(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
+    """View fronting statistics for a specific member."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
 
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     member = members_dict[member_id]
@@ -4053,6 +4130,7 @@ async def memberstats(interaction: discord.Interaction, member_id: str, subsyste
 @tree.command(name="memberhistory", description="View a member's front history")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def memberhistory(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
+    """View a specific member's front history."""
     await interaction.response.defer()
 
     user_id = interaction.user.id
@@ -4061,13 +4139,13 @@ async def memberhistory(interaction: discord.Interaction, member_id: str, subsys
         await interaction.followup.send("You must register using /register.")
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.followup.send("Subsystem not found.")
         return
 
     if member_id not in members_dict:
-        await interaction.followup.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await interaction.followup.send(f"Member not found in {get_scope_label(None, subsystem_id)}.")
         return
 
     member = members_dict[member_id]
@@ -4108,12 +4186,13 @@ async def memberhistory(interaction: discord.Interaction, member_id: str, subsys
 @tree.command(name="browsetags", description="Browse members by tags interactively in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def browsetags(interaction: discord.Interaction, subsystem_id: str = None):
+    """Browse and filter members by tags interactively."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register a main system first using /register.", ephemeral=True)
         return
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -4138,47 +4217,47 @@ async def viewmember(
     subsystem_id: str = None,
     target_user_id: str = None,
 ):
+    """View a member's profile card."""
     requester_id = interaction.user.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
         await interaction.response.send_message(error, ephemeral=True)
         return
 
+    await interaction.response.defer(ephemeral=True)
+
     # Use new helper for side/subsystem
     if side_id:
         side = get_side_system(system, side_id)
         if not side:
-            await interaction.response.send_message("Side system not found. Please check your side system ID.", ephemeral=True)
+            await interaction.followup.send("Side system not found. Please check your side system ID.", ephemeral=True)
             return
-        await interaction.response.defer(ephemeral=True)
         if subsystem_id:
             subs = side.get("subsystems", {})
             if subsystem_id not in subs:
-                await interaction.response.send_message("Subsystem not found in side system.", ephemeral=True)
+                await interaction.followup.send("Subsystem not found in side system.", ephemeral=True)
                 return
             members_dict = subs[subsystem_id]["members"]
         else:
             members_dict = side.get("members", {})
     else:
-        await interaction.response.defer(ephemeral=True)
         if subsystem_id:
             subsystems = system.get("subsystems", {})
             if subsystem_id not in subsystems:
-                await interaction.response.send_message("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
+                await interaction.followup.send("Subsystem not found. Please check your subsystem ID.", ephemeral=True)
                 return
             members_dict = subsystems[subsystem_id]["members"]
         else:
             members_dict = system.get("members", {})
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(side_id, subsystem_id)}.", ephemeral=True)
+        await interaction.followup.send(f"Member not found in {get_scope_label(side_id, subsystem_id)}.", ephemeral=True)
         return
 
     member = members_dict[member_id]
     if str(target_owner_id) != str(requester_id) and not can_view_member_data(system, member, requester_id):
-        await interaction.response.send_message("You do not have permission to view this member card.", ephemeral=True)
+        await interaction.followup.send("You do not have permission to view this member card.", ephemeral=True)
         return
 
-    await interaction.response.defer()
     await interaction.followup.send(view=cv2_view(build_member_profile_cv2(member, system=system, side_id=side_id, subsystem_id=subsystem_id)))
 
 # /random — View a random member from the system, optionally by privacy pool
@@ -4193,6 +4272,7 @@ async def randommember(
     interaction: discord.Interaction,
     privacy_pool: str = "all",
 ):
+    """View a random member from the system."""
     requester_id = interaction.user.id
     system_id = get_user_system_id(requester_id)
     if not system_id:
@@ -4227,7 +4307,7 @@ async def randommember(
         return
 
     scope_id, member = random.choice(candidates)
-    scope_label = get_scope_label(scope_id)
+    scope_label = scope_id_label(scope_id)
     pool_label = "all visible" if selected_pool == "all" else selected_pool
     await interaction.response.defer()
     await interaction.followup.send(
@@ -4263,6 +4343,7 @@ async def editmember(
     clear_proxy_tag: bool = False,
     edit_tags: bool = False
 ):
+    """Edit a member's name, pronouns, description, color, birthday, or tags."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4395,18 +4476,19 @@ async def addmembertag(
     proxy_format: str,
     subsystem_id: str = None,
 ):
+    """Add an extra proxy format to a member."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     prefix, suffix, err = parse_proxy_format_with_placeholder(proxy_format)
@@ -4430,7 +4512,7 @@ async def addmembertag(
 
     save_systems()
     await interaction.response.send_message(
-        f"Added proxy format for **{member.get('name', member_id)}** in {get_scope_label(subsystem_id)}.\nCurrent formats:\n{render_member_proxy_format(member)}",
+        f"Added proxy format for **{member.get('name', member_id)}** in {get_scope_label(None, subsystem_id)}.\nCurrent formats:\n{render_member_proxy_format(member)}",
         ephemeral=True,
     )
 
@@ -4444,18 +4526,19 @@ async def removemembertag(
     proxy_format: str,
     subsystem_id: str = None,
 ):
+    """Remove a proxy format from a member."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     prefix, suffix, err = parse_proxy_format_with_placeholder(proxy_format)
@@ -4479,7 +4562,7 @@ async def removemembertag(
 
     save_systems()
     await interaction.response.send_message(
-        f"Removed proxy format for **{member.get('name', member_id)}** in {get_scope_label(subsystem_id)}.\nCurrent formats:\n{render_member_proxy_format(member)}",
+        f"Removed proxy format for **{member.get('name', member_id)}** in {get_scope_label(None, subsystem_id)}.\nCurrent formats:\n{render_member_proxy_format(member)}",
         ephemeral=True,
     )
 # -----------------------------
@@ -4496,6 +4579,7 @@ async def editmemberimages(
     profile_pic: discord.Attachment = None,
     banner: discord.Attachment = None
 ):
+    """Edit a member's profile picture or banner."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4567,6 +4651,7 @@ async def members_list(
     whole_system: bool = False,
     target_user_id: str = None,
 ):
+    """View paginated member list for a scope."""
     await interaction.response.defer()
     requester_id = interaction.user.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
@@ -4748,7 +4833,7 @@ async def toggle_untracked_slash(
     if not member_id:
         await interaction.response.send_message("Usage: /toggleuntracked <member_id or name> [subsystem_id] [target_user_id]", ephemeral=True)
         return
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -4770,6 +4855,7 @@ async def toggle_untracked_slash(
     app_commands.Choice(name="Alphabetical", value="alphabetical"),
 ])
 async def membersort(interaction: discord.Interaction, mode: str):
+    """Set the member list sort mode (ID or alphabetical)."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4791,6 +4877,7 @@ async def membersort(interaction: discord.Interaction, mode: str):
 # /creategroup — Create a member group, optionally nested under a parent
 @tree.command(name="creategroup", description="Create a member group (optionally nested under another group)")
 async def creategroup(interaction: discord.Interaction, name: str, parent_group_id: str = None):
+    """Create a new member group."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4833,6 +4920,7 @@ async def editgroup(
     parent_group_id: str = None,
     clear_parent: bool = False,
 ):
+    """Edit a group's name or parent."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4888,6 +4976,7 @@ async def editgroup(
 # /deletegroup — Delete a group and optionally its nested children
 @tree.command(name="deletegroup", description="Delete a group and optionally all nested child groups")
 async def deletegroup(interaction: discord.Interaction, group_id: str, delete_children: bool = True):
+    """Delete a group and optionally its children."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4937,6 +5026,7 @@ async def deletegroup(interaction: discord.Interaction, group_id: str, delete_ch
 # /listgroups — List all groups in their current display order
 @tree.command(name="listgroups", description="List your groups in current card display order")
 async def listgroups_cmd(interaction: discord.Interaction, show_to_others: bool = False):
+    """List all groups in display order."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4976,6 +5066,7 @@ async def listgroups_cmd(interaction: discord.Interaction, show_to_others: bool 
 # /grouporder — Set group display order via comma-separated IDs
 @tree.command(name="grouporder", description="Set the order groups appear on member cards")
 async def grouporder(interaction: discord.Interaction, group_ids: str):
+    """Set the display order of groups."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5016,8 +5107,8 @@ async def grouporder(interaction: discord.Interaction, group_ids: str):
 
 
 # /grouporderui — Interactively reorder groups with a UI
-@tree.command(name="grouporderui", description="Interactively reorder groups for member card display")
 async def grouporderui(interaction: discord.Interaction):
+    """Interactively reorder groups with a visual UI."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5042,6 +5133,7 @@ async def grouporderui(interaction: discord.Interaction):
 @tree.command(name="addmembergroup", description="Assign a group to a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def addmembergroup(interaction: discord.Interaction, member_id: str, group_id: str, subsystem_id: str = None):
+    """Assign a member to a group."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5049,12 +5141,12 @@ async def addmembergroup(interaction: discord.Interaction, member_id: str, group
         return
 
     system = systems_data.get("systems", {}).get(system_id)
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     groups = get_group_settings(system).get("groups", {})
@@ -5077,6 +5169,7 @@ async def addmembergroup(interaction: discord.Interaction, member_id: str, group
 @tree.command(name="removemembergroup", description="Remove a group from a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def removemembergroup(interaction: discord.Interaction, member_id: str, group_id: str, side_id: str = None, subsystem_id: str = None):
+    """Remove a member from a group."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5127,6 +5220,7 @@ async def removemembergroup(interaction: discord.Interaction, member_id: str, gr
 @tree.command(name="membergroups", description="List groups assigned to a member")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def membergroups(interaction: discord.Interaction, member_id: str, subsystem_id: str = None):
+    """List all groups a member belongs to."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5134,12 +5228,12 @@ async def membergroups(interaction: discord.Interaction, member_id: str, subsyst
         return
 
     system = systems_data.get("systems", {}).get(system_id)
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
     if member_id not in members_dict:
-        await interaction.response.send_message(f"Member not found in {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"Member not found in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         return
 
     member = members_dict[member_id]
@@ -5159,6 +5253,7 @@ async def membergroups(interaction: discord.Interaction, member_id: str, subsyst
 @tree.command(name="searchmember", description="Search for a member by name or tag")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete, name=member_name_autocomplete, tag=tag_autocomplete)
 async def searchmember(interaction: discord.Interaction, subsystem_id: str = None, name: str = None, tag: str = None):
+    """Search for members by name or tag."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5169,7 +5264,7 @@ async def searchmember(interaction: discord.Interaction, subsystem_id: str = Non
         await interaction.response.send_message("System not found.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -5211,6 +5306,7 @@ async def searchmember(interaction: discord.Interaction, subsystem_id: str = Non
 # /addtag — Add a custom tag to the system's tag list
 @tree.command(name="addtag", description="Add a tag to your system")
 async def addtag(interaction: discord.Interaction, tag: str):
+    """Add a new tag to the system."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5243,6 +5339,7 @@ async def addtag(interaction: discord.Interaction, tag: str):
 # /listtags — List all common preset and custom tags
 @tree.command(name="listtags", description="List all tags in your system")
 async def listtags(interaction: discord.Interaction):
+    """List all tags in the system."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5279,13 +5376,14 @@ async def listtags(interaction: discord.Interaction):
 @tree.command(name="clearfront", description="Clear fronting status in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def clearfront(interaction: discord.Interaction, subsystem_id: str = None):
+    """Clear all current fronting statuses."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -5298,17 +5396,18 @@ async def clearfront(interaction: discord.Interaction, subsystem_id: str = None)
                 any_fronting = True
         save_systems()
         if any_fronting:
-            await interaction.response.send_message(f"All members are now removed from front in {get_scope_label(subsystem_id)}.", ephemeral=True)
+            await interaction.response.send_message(f"All members are now removed from front in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
         else:
-            await interaction.response.send_message(f"No members were fronting in {get_scope_label(subsystem_id)}.", ephemeral=True)
+            await interaction.response.send_message(f"No members were fronting in {get_scope_label(None, subsystem_id)}.", ephemeral=True)
 
     view = ConfirmAction(confirm_callback=do_clear)
-    await interaction.response.send_message(f"Are you sure you want to clear all current fronts in {get_scope_label(subsystem_id)}?", view=view, ephemeral=True)
+    await interaction.response.send_message(f"Are you sure you want to clear all current fronts in {get_scope_label(None, subsystem_id)}?", view=view, ephemeral=True)
 
 
 # /removetag — Remove a custom tag from the system and all members
 @tree.command(name="removetag", description="Remove a tag from your system")
 async def removetag(interaction: discord.Interaction, tag: str):
+    """Remove a tag from the system."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5357,6 +5456,7 @@ async def removetag(interaction: discord.Interaction, tag: str):
 @tree.command(name="removemember", description="Remove a member from a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def removemember(interaction: discord.Interaction, member_id: str, side_id: str = None, subsystem_id: str = None):
+    """Remove a single member with confirmation."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5404,6 +5504,7 @@ async def removemember(interaction: discord.Interaction, member_id: str, side_id
 @tree.command(name="removemembers", description="Remove multiple members at once (with confirmation) from a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def removemembers(interaction: discord.Interaction, side_id: str = None, subsystem_id: str = None):
+    """Remove multiple members at once with confirmation."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5477,6 +5578,7 @@ async def removemembers(interaction: discord.Interaction, side_id: str = None, s
 # /clearsystem — Remove all members from the entire system (destructive)
 @tree.command(name="clearsystem", description="Remove all members from your entire system (dangerous!)")
 async def clearsystem(interaction: discord.Interaction):
+    """Remove all members from the entire system (dangerous)."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5503,6 +5605,7 @@ async def clearsystem(interaction: discord.Interaction):
 ])
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def clearsubsystem(interaction: discord.Interaction, subsystem_id: str = None, action: str = "delete"):
+    """Remove all members from a single subsystem (dangerous)."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5513,7 +5616,7 @@ async def clearsubsystem(interaction: discord.Interaction, subsystem_id: str = N
         await interaction.response.send_message("Provide a subsystem ID for /clearsubsystem, or use /clearsystem for the entire system.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -5563,6 +5666,7 @@ async def clearsubsystem(interaction: discord.Interaction, subsystem_id: str = N
 # /deletesystem — Permanently delete the entire system record
 @tree.command(name="deletesystem", description="Delete your entire registered system record (dangerous!)")
 async def deletesystem(interaction: discord.Interaction):
+    """Delete the entire registered system (dangerous)."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -5592,16 +5696,16 @@ async def deletesystem(interaction: discord.Interaction):
 # Clear all front history
 # -----------------------------
 # /clearall — Erase all front history in a scope (destructive)
-@tree.command(name="clearall", description="Clear all front history for members in a subsystem")
 @app_commands.autocomplete(subsystem_id=subsystem_id_autocomplete)
 async def clearall(interaction: discord.Interaction, subsystem_id: str = None):
+    """Clear all front history for a scope."""
     user_id = interaction.user.id
     system_id = get_user_system_id(user_id)
     if not system_id:
         await interaction.response.send_message("You must register using /register.", ephemeral=True)
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await interaction.response.send_message("Subsystem not found.", ephemeral=True)
         return
@@ -5613,11 +5717,11 @@ async def clearall(interaction: discord.Interaction, subsystem_id: str = None):
             m["cofronting"] = []
             m["fronting_since"] = None
         save_systems()
-        await interaction.response.send_message(f"All front history has been cleared from {get_scope_label(subsystem_id)}.", ephemeral=True)
+        await interaction.response.send_message(f"All front history has been cleared from {get_scope_label(None, subsystem_id)}.", ephemeral=True)
 
     view = ConfirmAction(confirm_callback=do_clear)
     await interaction.response.send_message(
-        f"Are you sure you want to clear all front history in {get_scope_label(subsystem_id)}? This cannot be undone.",
+        f"Are you sure you want to clear all front history in {get_scope_label(None, subsystem_id)}? This cannot be undone.",
         view=view,
         ephemeral=True
     )
@@ -5626,9 +5730,9 @@ async def clearall(interaction: discord.Interaction, subsystem_id: str = None):
 # Refresh databases
 # -----------------------------
 # /refresh — Reload all system data from disk (admin only)
-@tree.command(name="refresh", description="Reload all databases from disk")
 @app_commands.default_permissions(administrator=True)
 async def refresh(interaction: discord.Interaction):
+    """Reload all system data from disk."""
     await interaction.response.defer(ephemeral=True)
     loaded_data = None
     if os.path.exists(JSON_FILE):
@@ -5651,8 +5755,8 @@ async def refresh(interaction: discord.Interaction):
 # Sync
 # -----------------------------
 # /synccommands — Force sync all slash commands globally (admin only)
-@tree.command(name="synccommands", description="Force sync all commands globally")
 async def synccommands(interaction: discord.Interaction):
+    """Force-sync all slash commands globally."""
     await interaction.response.defer(ephemeral=True)
 
     is_bot_admin = is_bot_moderator_user(interaction.user.id)
