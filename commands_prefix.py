@@ -1,9 +1,9 @@
+"""Prefix commands (Cor;) for the Cortex Discord bot."""
 import discord
 import random
 import re
 import json
 from copy import deepcopy
-from discord import app_commands
 from discord.ext import commands
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -23,6 +23,7 @@ from helpers import (
     get_user_system_id,
     get_system_members,
     get_scope_label,
+    scope_id_label,
     get_system_profile,
     get_system_proxy_tag,
     get_external_settings,
@@ -252,14 +253,15 @@ async def removemembers_prefix(ctx: commands.Context, *args):
     subsystem_id = None
     member_ids = list(args)
     # Check for subsystem_id and side_id at the end
-    if len(member_ids) >= 2 and member_ids[-2] in system.get("sidesystems", {}):
+    if len(member_ids) >= 2 and member_ids[-2] in system.get("side_systems", {}):
         side_id = member_ids[-2]
-        if member_ids[-1] in system.get("subsystems", {}):
+        side = system.get("side_systems", {}).get(side_id, {})
+        if member_ids[-1] in side.get("subsystems", {}):
             subsystem_id = member_ids[-1]
             member_ids = member_ids[:-2]
         else:
             member_ids = member_ids[:-1]
-    elif member_ids[-1] in system.get("sidesystems", {}):
+    elif member_ids[-1] in system.get("side_systems", {}):
         side_id = member_ids[-1]
         member_ids = member_ids[:-1]
     elif member_ids[-1] in system.get("subsystems", {}):
@@ -313,127 +315,11 @@ async def removemembers_prefix(ctx: commands.Context, *args):
         await interaction.response.edit_message(content=msg, view=None)
 
     await ctx.send(confirm_msg, view=ConfirmAction(do_remove))
-import discord
-import random
-import re
-import json
-from copy import deepcopy
-from discord import app_commands
-from discord.ext import commands
-from datetime import datetime, timezone, timedelta
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-from config import (
-    bot, tree, DEFAULT_FOCUS_MODES, PENDING_TIMEZONE_PROMPTS, SCHEDULED_MESSAGES,
-    EXTERNAL_TARGET_LIMIT_SECONDS,
-    with_instance_label,
-    PROFILE_PRIVACY_LEVELS,
-    TIMEZONE_FIXED_OFFSETS,
-    COMMON_TIMEZONES,
-    EXTERNAL_MSG_LIMIT_COUNT,
-    EXTERNAL_MSG_LIMIT_SECONDS,
-)
-from data import systems_data, save_systems
-from helpers import (
-    get_user_system_id,
-    get_system_members,
-    get_scope_label,
-    get_system_profile,
-    get_system_proxy_tag,
-    get_external_settings,
-    get_autoproxy_settings,
-    get_server_autoproxy_settings,
-    apply_autoproxy_mode,
-    get_front_reminder_settings,
-    get_birthday_reminder_settings,
-    get_system_timezone_name,
-    normalize_timezone_name,
-    get_system_timezone,
-    get_checkin_settings,
-    get_checkin_trend_text,
-    build_weekly_checkin_summary,
-    get_focus_modes,
-    get_all_mode_names,
-    start_focus_mode,
-    end_focus_mode,
-    calc_mode_stats,
-    normalize_hex,
-    build_member_profile_cv2,
-    build_subsystem_card_cv2,
-    build_system_card_cv2,
-    cv2_view,
-    cv2_simple,
-    _cv2_color,
-    resolve_member_identifier,
-    resolve_member_identifier_in_system,
-    start_front,
-    end_front,
-    format_duration,
-    iter_system_member_dicts,
-    get_member_sort_mode,
-    sort_member_rows,
-    format_member_group_lines,
-    parse_discord_user_id,
-    parse_bool_token,
-    get_user_mode,
-    is_bot_moderator_user,
-    get_moderation_state,
-    get_user_sanctions,
-    add_mod_event,
-    check_and_update_external_rate_limit,
-    check_and_update_external_target_rate_limit,
-    format_inbox_entry_for_channel,
-    format_inbox_entry_for_dm,
-    is_in_quiet_hours,
-    cleanup_external_inbox_entries,
-    add_external_audit_entry,
-    parse_sendmessage_args,
-    add_scheduled_message,
-    get_effective_autoproxy_settings,
-    get_server_appearance,
-    get_server_member_appearance,
-    resolve_target_system_for_view,
-    normalize_profile_privacy_level,
-    get_system_privacy_level,
-    get_member_privacy_level,
-    can_view_system_data,
-    can_view_member_data,
-    resolve_member_for_override,
-    get_system_tag_list,
-    normalize_tag_value,
-    get_available_tags_for_system,
-    add_custom_tags_to_system,
-    get_group_settings,
-    get_next_group_id,
-    get_group_path_text,
-    sorted_group_ids_for_member,
-    format_playlist_link,
-    normalize_embed_image_url,
-    prune_external_temp_blocks,
-    resolve_target_member_scope,
-    get_member_from_scope,
-    move_member_between_scopes,
-    get_next_system_member_id,
-    calculate_front_duration,
-    time_of_day_bucket,
-    get_fronting_member_for_user,
-    find_tagged_proxy_member,
-    get_member_proxy_parts,
-    get_member_proxy_formats,
-    render_member_proxy_format,
-    render_member_proxy_result,
-    add_member_proxy_format,
-    remove_member_proxy_format,
-    parse_proxy_format_with_placeholder,
-    set_member_proxy_formats,
-    normalize_proxy_formats,
-    is_user_suspended,
-)
-from views import ConfirmAction, GroupOrderView
 
 # Cor;friendprivacy — List all friended users and their alters with privacy buckets
 @bot.command(name="friendprivacy", aliases=["frp"])
 async def friendprivacy_prefix(ctx: commands.Context):
+    """List all friended users and their members with privacy levels."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -454,9 +340,9 @@ async def friendprivacy_prefix(ctx: commands.Context):
         for scope_id, members_dict in iter_system_member_dicts(friend_system):
             for member_id, member in members_dict.items():
                 privacy = get_member_privacy_level(member)
-                alters.append(f"    • {member.get('name', member_id)} (`{member_id}`) — {privacy} ({get_scope_label(scope_id)})")
+                alters.append(f"    • {member.get('name', member_id)} (`{member_id}`) — {privacy} ({scope_id_label(scope_id)})")
         lines.append(f"- <@{friend_id}> ({len(alters)} alters):\n" + ("\n".join(alters) if alters else "    (no alters found)"))
-
+    await ctx.send("\n".join(lines))
 
 
 # -----------------------------
@@ -465,6 +351,7 @@ async def friendprivacy_prefix(ctx: commands.Context):
 # Cor;help — Display paginated help pages with all bot commands
 @bot.command(name="help", aliases=["h"])
 async def help_prefix(ctx: commands.Context):
+    """Display the paginated help menu with all bot commands."""
     pages = [
         {
             "title": "Cortex Help - Setup & Cards",
@@ -752,6 +639,7 @@ async def help_prefix(ctx: commands.Context):
 # Cor;viewsystemcard — Show system card embed for self or another user
 @bot.command(name="viewsystemcard", aliases=["vsc"])
 async def viewsystemcard_prefix(ctx: commands.Context, target_user_id: str = None):
+    """Display the system profile card."""
     requester_id = ctx.author.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
@@ -769,6 +657,7 @@ async def viewsystemcard_prefix(ctx: commands.Context, target_user_id: str = Non
 # Cor;timezonestatus — Show the current system timezone
 @bot.command(name="timezonestatus", aliases=["tzs"])
 async def timezonestatus_prefix(ctx: commands.Context):
+    """View the current system timezone."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -786,6 +675,7 @@ async def timezonestatus_prefix(ctx: commands.Context):
 # Cor;settimezone — Set the system timezone (e.g. UTC, America/New_York)
 @bot.command(name="settimezone", aliases=["stz"])
 async def settimezone_prefix(ctx: commands.Context, *, timezone_name: str = None):
+    """Set the system timezone."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -832,6 +722,7 @@ import io
 # Cor;exportsystem — Export system data as a JSON file sent via DM
 @bot.command(name="exportsystem", aliases=["expsys"])
 async def exportsystem_prefix(ctx: commands.Context):
+    """Export the system as a JSON file."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -858,6 +749,7 @@ async def exportsystem_prefix(ctx: commands.Context):
 # Cor;importsystem — Import a system from an attached JSON export file
 @bot.command(name="importsystem", aliases=["impsys"])
 async def importsystem_prefix(ctx: commands.Context):
+    """Import a system from a JSON file."""
     user_id = ctx.author.id
     if get_user_system_id(user_id):
         await ctx.send("You already have a registered system. Delete it first to import.")
@@ -894,6 +786,7 @@ async def importsystem_prefix(ctx: commands.Context):
 # Cor;setmode — Set or clear the active focus mode (singlet only)
 @bot.command(name="setmode", aliases=["sm"])
 async def setmode_prefix(ctx: commands.Context, *, args: str = None):
+    """Set the current focus mode (singlet only)."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -937,6 +830,7 @@ async def setmode_prefix(ctx: commands.Context, *, args: str = None):
 # Cor;currentmode — Show the currently active focus mode and duration
 @bot.command(name="currentmode", aliases=["cm"])
 async def currentmode_prefix(ctx: commands.Context):
+    """View the current active focus mode."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -965,6 +859,7 @@ async def currentmode_prefix(ctx: commands.Context):
 # Cor;modestats — Show focus mode time stats over a given number of days
 @bot.command(name="modestats", aliases=["mst"])
 async def modestats_prefix(ctx: commands.Context, days: str = "30"):
+    """View time spent in each focus mode."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1009,6 +904,7 @@ async def modestats_prefix(ctx: commands.Context, days: str = "30"):
 # Cor;checkin — Log a mood/energy check-in with optional notes
 @bot.command(name="checkin", aliases=["chk"])
 async def checkin_prefix(ctx: commands.Context, rating: str = None, energy: str = None, *, notes: str = None):
+    """Log a mood check-in with rating, energy, and optional note."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1086,6 +982,7 @@ async def checkin_prefix(ctx: commands.Context, rating: str = None, energy: str 
 # Cor;weeklymoodsummary — Enable or disable weekly mood summary DMs
 @bot.command(name="weeklymoodsummary", aliases=["wms"])
 async def weeklymoodsummary_prefix(ctx: commands.Context, enabled: str = None):
+    """Toggle weekly mood summary DMs."""
     parsed = parse_bool_token(enabled)
     if parsed is None:
         await ctx.send("Usage: `Cor;weeklymoodsummary <true|false>`")
@@ -1113,6 +1010,7 @@ async def weeklymoodsummary_prefix(ctx: commands.Context, enabled: str = None):
 # Cor;checkinstatus — Show check-in trend and weekly summary setting
 @bot.command(name="checkinstatus", aliases=["chs"])
 async def checkinstatus_prefix(ctx: commands.Context):
+    """View check-in settings and mood trend."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1136,6 +1034,7 @@ async def checkinstatus_prefix(ctx: commands.Context):
 # Cor;birthdayreminders — Enable or disable birthday reminder DMs
 @bot.command(name="birthdayreminders", aliases=["bdr"])
 async def birthdayreminders_prefix(ctx: commands.Context, enabled: str = None):
+    """Toggle birthday reminder DMs."""
     parsed = parse_bool_token(enabled)
     if parsed is None:
         await ctx.send("Usage: `Cor;birthdayreminders <true|false>`")
@@ -1165,6 +1064,7 @@ async def birthdayreminders_prefix(ctx: commands.Context, enabled: str = None):
 # Cor;setbirthdayreminderdays — Set day offsets for birthday reminders
 @bot.command(name="setbirthdayreminderdays", aliases=["sbrd"])
 async def setbirthdayreminderdays_prefix(ctx: commands.Context, *, days: str = None):
+    """Set birthday reminder day offsets."""
     if not days:
         await ctx.send("Usage: `Cor;setbirthdayreminderdays <comma_separated_days>` (example: `Cor;setbirthdayreminderdays 7,3,1`)")
         return
@@ -1216,6 +1116,7 @@ async def setbirthdayreminderdays_prefix(ctx: commands.Context, *, days: str = N
 # Cor;birthdayreminderstatus — Show birthday reminder settings
 @bot.command(name="birthdayreminderstatus", aliases=["bdrs"])
 async def birthdayreminderstatus_prefix(ctx: commands.Context):
+    """View birthday reminder settings."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1237,6 +1138,7 @@ async def birthdayreminderstatus_prefix(ctx: commands.Context):
 # Cor;allowexternal — Enable or disable receiving external messages
 @bot.command(name="allowexternal", aliases=["aex"])
 async def allowexternal_prefix(ctx: commands.Context, enabled: str):
+    """Toggle external messaging on or off."""
     parsed = parse_bool_token(enabled)
     if parsed is None:
         await ctx.send("Invalid value. Use true/false.")
@@ -1263,6 +1165,7 @@ async def allowexternal_prefix(ctx: commands.Context, enabled: str):
 # Cor;switchmember — Switch the currently fronting member
 @bot.command(name="switchmember", aliases=["sw"])
 async def switchmember_prefix(ctx: commands.Context, member_id: str, subsystem_id: str = None):
+    """Log a member as currently fronting."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1340,6 +1243,7 @@ async def cofrontmember_prefix(
     *,
     cofront_member_ids: str = None,
 ):
+    """Select co-fronting members."""
     if not member_id:
         await ctx.send("Usage: Cor;cofrontmember <member_id_or_name> [side_id] [subsystem_id] [cofront_ids_or_names]")
         return
@@ -1352,7 +1256,7 @@ async def cofrontmember_prefix(
 
     system = systems_data.get("systems", {}).get(system_id, {})
     # If subsystem_id is a valid side_id, treat as side_id
-    if subsystem_id and subsystem_id in system.get("sidesystems", {}):
+    if subsystem_id and subsystem_id in system.get("side_systems", {}):
         side_id = subsystem_id
         subsystem_id = None
     members = get_system_members(system_id, side_id, subsystem_id)
@@ -1406,6 +1310,7 @@ async def cofrontmember_prefix(
 # Cor;currentfronts — Show all currently fronting members by scope
 @bot.command(name="currentfronts", aliases=["cf"])
 async def currentfronts_prefix(ctx: commands.Context, scope: str = "all"):
+    """View currently fronting members."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1426,16 +1331,16 @@ async def currentfronts_prefix(ctx: commands.Context, scope: str = "all"):
         scope_sets = [(None, members_dict)]
         title = "Current Fronts - Main System"
     else:
-        members_dict = get_system_members(system_id, scope)
+        members_dict = get_system_members(system_id, subsystem_id=scope)
         if members_dict is None:
             await ctx.send("Subsystem not found.")
             return
         scope_sets = [(scope, members_dict)]
-        title = f"Current Fronts - {get_scope_label(scope).capitalize()}"
+        title = f"Current Fronts - {get_scope_label(None, scope).capitalize()}"
 
     fronters = []
     for scope_id, scoped_members in scope_sets:
-        scope_label = get_scope_label(scope_id)
+        scope_label = scope_id_label(scope_id)
         for m in scoped_members.values():
             current = m.get("current_front")
             if not current:
@@ -1456,6 +1361,7 @@ async def currentfronts_prefix(ctx: commands.Context, scope: str = "all"):
 # Cor;globalautoproxy — Set the global autoproxy mode (off/front/latch)
 @bot.command(name="globalautoproxy", aliases=["gap"])
 async def globalautoproxy_prefix(ctx: commands.Context, mode: str = None):
+    """Set global autoproxy mode."""
     if mode is None:
         await ctx.send("Usage: Cor;globalautoproxy <off|front|latch>")
         return
@@ -1486,6 +1392,7 @@ async def globalautoproxy_prefix(ctx: commands.Context, mode: str = None):
 # Cor;autoproxy — Set per-server autoproxy mode or inherit global
 @bot.command(name="autoproxy", aliases=["ap"])
 async def autoproxy_prefix(ctx: commands.Context, mode: str = None):
+    """Set per-server autoproxy mode."""
     if mode is None:
         await ctx.send("Usage: Cor;autoproxy <inherit|off|front|latch>")
         return
@@ -1529,6 +1436,7 @@ async def autoproxy_prefix(ctx: commands.Context, mode: str = None):
 # Cor;autoproxystatus — Show global, server, and effective autoproxy mode
 @bot.command(name="autoproxystatus", aliases=["apst"])
 async def autoproxystatus_prefix(ctx: commands.Context):
+    """View autoproxy settings."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -1561,6 +1469,7 @@ async def autoproxystatus_prefix(ctx: commands.Context):
 # Cor;members — List system members with pagination and front status
 @bot.command(name="members", aliases=["mem"])
 async def members_prefix(ctx: commands.Context, scope: str = "main", page: int = 1, target_user_id: str = None):
+    """View paginated member list."""
     requester_id = ctx.author.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
@@ -1630,7 +1539,7 @@ async def members_prefix(ctx: commands.Context, scope: str = "main", page: int =
             member_rows.append((None, member_id, member, "Main System"))
         title_scope = "Main System"
     else:
-        members_dict = get_system_members(system_id, scope)
+        members_dict = get_system_members(system_id, subsystem_id=scope)
         print(f"[DEBUG] subsystem members_dict keys: {list(members_dict.keys()) if members_dict else 'None'}")
         if members_dict is None:
             await ctx.send("Subsystem not found.")
@@ -1772,6 +1681,7 @@ async def toggle_untracked_prefix(ctx: commands.Context, member_id: str = None, 
 # Cor;viewmember — Show a member's profile card embed
 @bot.command(name="viewmember", aliases=["vm"])
 async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None, target_user_id: str = None):
+    """View a member's profile card."""
     if not member_id:
         await ctx.send("Usage: Cor;viewmember <member_id or name> [side_id] [subsystem_id] [target_user_id]")
         return
@@ -1789,7 +1699,7 @@ async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsys
     # (If you want to support this more robustly, consider refactoring argument parsing for all prefix commands)
     side_id = None
     # If subsystem_id is a valid side_id, treat as side_id
-    if subsystem_id and subsystem_id in system.get("sidesystems", {}):
+    if subsystem_id and subsystem_id in system.get("side_systems", {}):
         side_id = subsystem_id
         subsystem_id = None
 
@@ -1809,6 +1719,7 @@ async def viewmember_prefix(ctx: commands.Context, member_id: str = None, subsys
 # Cor;random — Show a random member, optionally filtered by privacy pool
 @bot.command(name="random")
 async def random_prefix(ctx: commands.Context, pool: str = None, side_id: str = None, subsystem_id: str = None):
+    """View a random member from the system."""
     valid_pools = {"public", "friends", "trusted", "all"}
 
     selected_pool = "all"
@@ -1857,6 +1768,7 @@ async def random_prefix(ctx: commands.Context, pool: str = None, side_id: str = 
 # Cor;editmemberimages — Update member profile pic/banner via attachments
 @bot.command(name="editmemberimages", aliases=["emi"])
 async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, side_id: str = None, subsystem_id: str = None):
+    """Edit a member's profile picture or banner."""
     if not member_id:
         await ctx.send("Usage: Cor;editmemberimages <member_id> [side_id] [subsystem_id] (attach 1-2 image files)")
         return
@@ -1918,6 +1830,7 @@ async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, 
 # Cor;memberimagedebug — Debug member image URLs and normalization
 @bot.command(name="memberimagedebug", aliases=["midbg"])
 async def memberimagedebug_prefix(ctx: commands.Context, member_id: str = None, side_id: str = None, subsystem_id: str = None, target_user_id: str = None):
+    """Debug a member's image URLs."""
     if not member_id:
         await ctx.send("Usage: Cor;memberimagedebug <member_id> [side_id] [subsystem_id] [target_user_id]")
         return
@@ -1969,6 +1882,7 @@ async def editmembertag_prefix(
     side_id: str = None,
     subsystem_id: str = None,
 ):
+    """Set all proxy formats for a member."""
     if not member_id or proxy_format is None:
         await ctx.send("Usage: Cor;editmembertag <member_id> <format_with_text|clear> [side_id] [subsystem_id]")
         return
@@ -2022,6 +1936,7 @@ async def addmembertag_prefix(
     side_id: str = None,
     subsystem_id: str = None,
 ):
+    """Add a proxy format to a member."""
     if not member_id or proxy_format is None:
         await ctx.send("Usage: Cor;addmembertag <member_id> <format_with_text> [side_id] [subsystem_id]")
         return
@@ -2071,6 +1986,7 @@ async def removemembertag_prefix(
     side_id: str = None,
     subsystem_id: str = None,
 ):
+    """Remove a proxy format from a member."""
     if not member_id or proxy_format is None:
         await ctx.send("Usage: Cor;removemembertag <member_id> <format_with_text> [side_id] [subsystem_id]")
         return
@@ -2121,6 +2037,7 @@ async def movemember_prefix(
     from_side_id: str = None,
     from_subsystem_id: str = None,
 ):
+    """Move a member between scopes."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2146,6 +2063,7 @@ async def movemember_prefix(
 # Cor;membersort — Set member list sort order (id or alphabetical)
 @bot.command(name="membersort", aliases=["ms"])
 async def membersort_prefix(ctx: commands.Context, mode: str = None):
+    """Set the member list sort mode."""
     if mode is None:
         await ctx.send("Usage: Cor;membersort <id|alphabetical>")
         return
@@ -2180,6 +2098,7 @@ async def membersort_prefix(ctx: commands.Context, mode: str = None):
 # Cor;creategroup — Create a new member group with optional parent
 @bot.command(name="creategroup", aliases=["cg"])
 async def creategroup_prefix(ctx: commands.Context, name: str, parent_group_id: str = None):
+    """Create a new member group."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2216,6 +2135,7 @@ async def creategroup_prefix(ctx: commands.Context, name: str, parent_group_id: 
 # Cor;editgroup — Edit a group's name or parent group
 @bot.command(name="editgroup", aliases=["eg"])
 async def editgroup_prefix(ctx: commands.Context, group_id: str, field: str, *, value: str = None):
+    """Edit a group's name or parent."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2274,6 +2194,7 @@ async def editgroup_prefix(ctx: commands.Context, group_id: str, field: str, *, 
 # Cor;deletegroup — Delete a group and optionally its child groups
 @bot.command(name="deletegroup", aliases=["dg"])
 async def deletegroup_prefix(ctx: commands.Context, group_id: str, delete_children: str = "true"):
+    """Delete a member group."""
     parsed_delete_children = parse_bool_token(delete_children)
     if parsed_delete_children is None:
         await ctx.send("Invalid delete_children value. Use true/false.")
@@ -2323,6 +2244,7 @@ async def deletegroup_prefix(ctx: commands.Context, group_id: str, delete_childr
 # Cor;listgroups — List all groups with their hierarchy paths
 @bot.command(name="listgroups", aliases=["lg"])
 async def listgroups_prefix(ctx: commands.Context):
+    """List all groups in display order."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2355,6 +2277,7 @@ async def listgroups_prefix(ctx: commands.Context):
 # Cor;grouporder — Reorder groups by providing comma-separated IDs
 @bot.command(name="grouporder", aliases=["go"])
 async def grouporder_prefix(ctx: commands.Context, *, group_ids: str):
+    """Set the display order of groups."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2397,6 +2320,7 @@ async def grouporder_prefix(ctx: commands.Context, *, group_ids: str):
 # Cor;grouporderui — Interactive UI for reordering groups
 @bot.command(name="grouporderui", aliases=["goui"])
 async def grouporderui_prefix(ctx: commands.Context):
+    """Interactively reorder groups."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2420,6 +2344,7 @@ async def grouporderui_prefix(ctx: commands.Context):
 # Cor;addmembergroup — Assign a member to a group
 @bot.command(name="addmembergroup", aliases=["amg"])
 async def addmembergroup_prefix(ctx: commands.Context, member_id: str, group_id: str, subsystem_id: str = None):
+    """Assign a member to a group."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2427,12 +2352,12 @@ async def addmembergroup_prefix(ctx: commands.Context, member_id: str, group_id:
         return
 
     system = systems_data.get("systems", {}).get(system_id)
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await ctx.send("Subsystem not found.")
         return
     if member_id not in members_dict:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(None, subsystem_id)}.")
         return
 
     groups = get_group_settings(system).get("groups", {})
@@ -2454,6 +2379,7 @@ async def addmembergroup_prefix(ctx: commands.Context, member_id: str, group_id:
 # Cor;removemembergroup — Remove a member from a group
 @bot.command(name="removemembergroup", aliases=["rmg"])
 async def removemembergroup_prefix(ctx: commands.Context, member_id: str, group_id: str, side_id: str = None, subsystem_id: str = None):
+    """Remove a member from a group."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2483,6 +2409,7 @@ async def removemembergroup_prefix(ctx: commands.Context, member_id: str, group_
 # Cor;membergroups — Show which groups a member belongs to
 @bot.command(name="membergroups", aliases=["mg"])
 async def membergroups_prefix(ctx: commands.Context, member_id: str, side_id: str = None, subsystem_id: str = None):
+    """List groups a member belongs to."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2509,6 +2436,7 @@ async def membergroups_prefix(ctx: commands.Context, member_id: str, side_id: st
 # Cor;searchmember — Search members by name or tag
 @bot.command(name="searchmember", aliases=["srm"])
 async def searchmember_prefix(ctx: commands.Context, query: str = None, side_id: str = None, subsystem_id: str = None):
+    """Search for members by name or tag."""
     if not query:
         await ctx.send("Usage: Cor;searchmember <query> [side_id] [subsystem_id]")
         return
@@ -2588,7 +2516,7 @@ async def searchmember_prefix(ctx: commands.Context, query: str = None, side_id:
         ))
 
         tags = ", ".join(member.get("tags", [])) if member.get("tags") else "None"
-        scope_line = f"\n**Scope:** {get_scope_label(scope_id)}" if search_all_scopes else ""
+        scope_line = f"\n**Scope:** {scope_id_label(scope_id)}" if search_all_scopes else ""
         container.add_item(discord.ui.TextDisplay(
             f"**Tags:** {tags}\n**Groups:** {format_member_group_lines(system, member)}{scope_line}"
         ))
@@ -2602,7 +2530,7 @@ async def searchmember_prefix(ctx: commands.Context, query: str = None, side_id:
     lines = []
     for scope_id, member in results:
         member_tags = ", ".join(member.get("tags", [])) or "None"
-        scope_text = f" | Scope: {get_scope_label(scope_id)}" if search_all_scopes else ""
+        scope_text = f" | Scope: {scope_id_label(scope_id)}" if search_all_scopes else ""
         lines.append(f"**{member.get('name', 'Unknown')}** - ID `{member.get('id', 'N/A')}`{scope_text} - Tags: {member_tags}")
 
     await ctx.send(view=cv2_simple(
@@ -2615,6 +2543,7 @@ async def searchmember_prefix(ctx: commands.Context, query: str = None, side_id:
 # Cor;register — Register a new system profile
 @bot.command(name="register", aliases=["reg"])
 async def register_prefix(ctx: commands.Context, *, system_name: str = None):
+    """Register a new system or singlet profile."""
     if not system_name:
         await ctx.send("Usage: Cor;register <system_name>")
         return
@@ -2690,6 +2619,7 @@ async def register_prefix(ctx: commands.Context, *, system_name: str = None):
 # Cor;createsubsystem — Create a new subsystem under the main system
 @bot.command(name="createsubsystem", aliases=["css"])
 async def createsubsystem_prefix(ctx: commands.Context, *, subsystem_name: str = None):
+    """Create a subsystem under the main system."""
     if not subsystem_name:
         await ctx.send("Usage: Cor;createsubsystem <subsystem_name>")
         return
@@ -2730,6 +2660,7 @@ async def createsubsystem_prefix(ctx: commands.Context, *, subsystem_name: str =
 # Cor;editsubsystem — Rename an existing subsystem
 @bot.command(name="editsubsystem", aliases=["es"])
 async def editsubsystem_prefix(ctx: commands.Context, subsystem_id: str = None, *, new_name: str = None):
+    """Rename an existing subsystem."""
     if not subsystem_id or not new_name:
         await ctx.send("Usage: Cor;editsubsystem <subsystem_id> <new_name>")
         return
@@ -2757,6 +2688,7 @@ async def editsubsystem_prefix(ctx: commands.Context, subsystem_id: str = None, 
 # Cor;viewsubsystemcard — Show a subsystem's card embed
 @bot.command(name="viewsubsystemcard", aliases=["vssc"])
 async def viewsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = None, target_user_id: str = None):
+    """View a subsystem's profile card."""
     if not subsystem_id:
         await ctx.send("Usage: Cor;viewsubsystemcard <subsystem_id> [target_user_id]")
         return
@@ -2785,6 +2717,7 @@ async def viewsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = No
 # Cor;editsubsystemcard — Edit subsystem description, color, pic, or banner
 @bot.command(name="editsubsystemcard", aliases=["esc"])
 async def editsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = None, *, args: str = None):
+    """Edit a subsystem's description, color, or image."""
     if not subsystem_id:
         await ctx.send(
             "Usage:\n"
@@ -2879,6 +2812,7 @@ async def editsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = No
 # Cor;listsubsystems — List all subsystems with member counts
 @bot.command(name="listsubsystems", aliases=["lss"])
 async def listsubsystems_prefix(ctx: commands.Context, target_user_id: str = None):
+    """List all subsystems with their IDs."""
     requester_id = ctx.author.id
     system_id, system, target_owner_id, error = resolve_target_system_for_view(requester_id, target_user_id)
     if error:
@@ -2924,6 +2858,7 @@ async def listsubsystems_prefix(ctx: commands.Context, target_user_id: str = Non
 # Cor;systemtag — View, set, or clear the system proxy tag
 @bot.command(name="systemtag", aliases=["stag"])
 async def systemtag_prefix(ctx: commands.Context, *, value: str = None):
+    """Set, clear, or view the system proxy tag."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -2962,6 +2897,7 @@ async def systemtag_prefix(ctx: commands.Context, *, value: str = None):
 # Cor;systemprivacy — Set system-level privacy (private/trusted/friends/public)
 @bot.command(name="systemprivacy", aliases=["spv"])
 async def systemprivacy_prefix(ctx: commands.Context, level: str = None):
+    """Set the system-wide privacy level."""
     if level is None:
         await ctx.send("Usage: Cor;systemprivacy <private|trusted|friends|public>")
         return
@@ -2991,6 +2927,7 @@ async def systemprivacy_prefix(ctx: commands.Context, level: str = None):
 # Cor;alterprivacy — Set a single member's privacy level
 @bot.command(name="alterprivacy", aliases=["apv"])
 async def alterprivacy_prefix(ctx: commands.Context, member_id: str = None, level: str = None, subsystem_id: str = None):
+    """Set a member's privacy level."""
     if member_id is None or level is None:
         await ctx.send("Usage: Cor;alterprivacy <member_id> <private|trusted|friends|public> [subsystem_id]")
         return
@@ -3001,12 +2938,12 @@ async def alterprivacy_prefix(ctx: commands.Context, member_id: str = None, leve
         await ctx.send("You must register a main system first using /register.")
         return
 
-    members_dict = get_system_members(system_id, subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=subsystem_id)
     if members_dict is None:
         await ctx.send("Subsystem not found.")
         return
     if member_id not in members_dict:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(None, subsystem_id)}.")
         return
 
     raw_level = str(level).strip().lower()
@@ -3024,6 +2961,7 @@ async def alterprivacy_prefix(ctx: commands.Context, member_id: str = None, leve
 # Cor;bulkalterprivacy — Set privacy level for multiple members at once
 @bot.command(name="bulkalterprivacy", aliases=["bapv"])
 async def bulkalterprivacy_prefix(ctx: commands.Context, member_ids: str = None, level: str = None, subsystem_id: str = None):
+    """Set privacy for all members in a scope."""
     if member_ids is None or level is None:
         await ctx.send("Usage: Cor;bulkalterprivacy <member_ids> <private|trusted|friends|public> [subsystem_id]\nExample: Cor;bulkalterprivacy 1,Alice,Bob public")
         return
@@ -3036,7 +2974,7 @@ async def bulkalterprivacy_prefix(ctx: commands.Context, member_ids: str = None,
 
     # If subsystem_id is not provided or is blank, use main system
     effective_subsystem_id = subsystem_id if subsystem_id not in {None, "", "main", "none", "-"} else None
-    members_dict = get_system_members(system_id, effective_subsystem_id)
+    members_dict = get_system_members(system_id, subsystem_id=effective_subsystem_id)
     if members_dict is None:
         await ctx.send("Subsystem not found.")
         return
@@ -3077,6 +3015,7 @@ async def bulkalterprivacy_prefix(ctx: commands.Context, member_ids: str = None,
 # Cor;privacystatus — Show system and member privacy level summary
 @bot.command(name="privacystatus", aliases=["pvs"])
 async def privacystatus_prefix(ctx: commands.Context):
+    """View privacy levels for all members."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3097,7 +3036,7 @@ async def privacystatus_prefix(ctx: commands.Context):
             counts[level] = counts.get(level, 0) + 1
             total_members += 1
             if len(sample_lines) < 12:
-                sample_lines.append(f"\u2022 {member.get('name', member_id)} (`{member_id}`) \u2014 {level} ({get_scope_label(scope_id)})")
+                sample_lines.append(f"\u2022 {member.get('name', member_id)} (`{member_id}`) \u2014 {level} ({scope_id_label(scope_id)})")
 
     lines = [
         "**Privacy Status**",
@@ -3121,6 +3060,7 @@ async def privacystatus_prefix(ctx: commands.Context):
 # Cor;serveridentity — Set or clear per-server display name, tag, or icon
 @bot.command(name="serveridentity", aliases=["si"])
 async def serveridentity_prefix(ctx: commands.Context, field: str = None, *, value: str = None):
+    """Set server-specific system identity."""
     VALID_FIELDS = {"display_name", "tag", "icon", "clear_display_name", "clear_tag", "clear_icon"}
     if field is None or field.lower() not in VALID_FIELDS:
         await ctx.send(
@@ -3201,6 +3141,7 @@ async def serveridentity_prefix(ctx: commands.Context, field: str = None, *, val
 # Cor;serveridentitystatus — Show global vs server identity overrides
 @bot.command(name="serveridentitystatus", aliases=["sis"])
 async def serveridentitystatus_prefix(ctx: commands.Context):
+    """View server identity settings."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3252,6 +3193,7 @@ async def servermemberidentity_prefix(
     *,
     value: str = None,
 ):
+    """Set server-specific member identity overrides."""
     if member_id is None or field is None:
         await ctx.send(
             "Usage: `Cor;servermemberidentity <member_id> <field> [subsystem_id] [value]`\n"
@@ -3288,7 +3230,7 @@ async def servermemberidentity_prefix(
         await ctx.send("Member ID exists in multiple scopes. Provide `subsystem_id` to target the correct member.")
         return
     if error_key == "not_found" or not member:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(None, subsystem_id)}.")
         return
 
     guild_key = str(ctx.guild.id)
@@ -3348,6 +3290,7 @@ async def servermemberidentity_prefix(
 # Cor;servermemberidentitystatus — Show server identity overrides for a member
 @bot.command(name="servermemberidentitystatus", aliases=["smis"])
 async def servermemberidentitystatus_prefix(ctx: commands.Context, member_id: str = None, subsystem_id: str = None):
+    """View server member identity settings."""
     if member_id is None:
         await ctx.send("Usage: `Cor;servermemberidentitystatus <member_id> [subsystem_id]`")
         return
@@ -3371,7 +3314,7 @@ async def servermemberidentitystatus_prefix(ctx: commands.Context, member_id: st
         await ctx.send("Member ID exists in multiple scopes. Provide `subsystem_id` to target the correct member.")
         return
     if error_key == "not_found" or not member:
-        await ctx.send(f"Member not found in {get_scope_label(subsystem_id)}.")
+        await ctx.send(f"Member not found in {get_scope_label(None, subsystem_id)}.")
         return
 
     guild_id = ctx.guild.id if ctx.guild else None
@@ -3417,6 +3360,7 @@ async def servermemberidentitystatus_prefix(ctx: commands.Context, member_id: st
 # Cor;messageto — Send an internal message to a member's inbox
 @bot.command(name="messageto", aliases=["msg"])
 async def messageto_prefix(ctx: commands.Context, member_id: str, *, message: str):
+    """Send a message to a member in another system."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3448,6 +3392,7 @@ async def messageto_prefix(ctx: commands.Context, member_id: str, *, message: st
 # Cor;sendexternal — Send an external message to another user's member
 @bot.command(name="sendexternal", aliases=["sxe"])
 async def sendexternal_prefix(ctx: commands.Context, target_user_id: str, target_member_id: str, *, message: str):
+    """Send an external message to another system's member."""
     sender_user_id = ctx.author.id
     sender_system_id = get_user_system_id(sender_user_id)
     if not sender_system_id:
@@ -3583,6 +3528,7 @@ async def sendexternal_prefix(ctx: commands.Context, target_user_id: str, target
 # Cor;externalprivacy — Set external message delivery mode
 @bot.command(name="externalprivacy", aliases=["epr"])
 async def externalprivacy_prefix(ctx: commands.Context, mode: str):
+    """Set external inbox message visibility."""
     cleaned = (mode or "").strip().lower()
     if cleaned not in {"public", "private_summary", "dm_only"}:
         await ctx.send("Invalid mode. Use: public, private_summary, or dm_only.")
@@ -3608,6 +3554,7 @@ async def externalprivacy_prefix(ctx: commands.Context, mode: str):
 # Cor;externalstatus — Show full external messaging settings summary
 @bot.command(name="externalstatus", aliases=["est"])
 async def externalstatus_prefix(ctx: commands.Context):
+    """View external messaging settings."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3646,6 +3593,7 @@ async def externalstatus_prefix(ctx: commands.Context):
 # Cor;externallimits — Set max char length and target cooldown for externals
 @bot.command(name="externallimits", aliases=["elim"])
 async def externallimits_prefix(ctx: commands.Context, max_chars: int = 1500, target_cooldown_seconds: int = EXTERNAL_TARGET_LIMIT_SECONDS):
+    """Set external message rate limits."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3670,6 +3618,7 @@ async def externallimits_prefix(ctx: commands.Context, max_chars: int = 1500, ta
 # Cor;externaltrustedonly — Toggle trusted-senders-only mode for externals
 @bot.command(name="externaltrustedonly", aliases=["eto"])
 async def externaltrustedonly_prefix(ctx: commands.Context, enabled: str):
+    """Toggle trusted-only mode for external messages."""
     parsed = parse_bool_token(enabled)
     if parsed is None:
         await ctx.send("Invalid value. Use true/false.")
@@ -3694,6 +3643,7 @@ async def externaltrustedonly_prefix(ctx: commands.Context, enabled: str):
 # Cor;trustuser — Add a user to the trusted users list
 @bot.command(name="trustuser", aliases=["tru"])
 async def trustuser_prefix(ctx: commands.Context, user_id: str):
+    """Add a user to the trusted list."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -3716,6 +3666,7 @@ async def trustuser_prefix(ctx: commands.Context, user_id: str):
 # Cor;untrustuser — Remove a user from the trusted users list
 @bot.command(name="untrustuser", aliases=["utru"])
 async def untrustuser_prefix(ctx: commands.Context, user_id: str):
+    """Remove a user from the trusted list."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -3740,6 +3691,7 @@ async def untrustuser_prefix(ctx: commands.Context, user_id: str):
 # Cor;frienduser — Send a mutual friend request to another user
 @bot.command(name="frienduser", aliases=["fru"])
 async def frienduser_prefix(ctx: commands.Context, user_id: str):
+    """Add a user to the friends list."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -3802,6 +3754,7 @@ async def frienduser_prefix(ctx: commands.Context, user_id: str):
 # Cor;unfrienduser — Remove a user from the friends list
 @bot.command(name="unfrienduser", aliases=["ufru"])
 async def unfrienduser_prefix(ctx: commands.Context, user_id: str):
+    """Remove a user from the friends list."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -3825,6 +3778,7 @@ async def unfrienduser_prefix(ctx: commands.Context, user_id: str):
 # Cor;externalusers — List all external users with privacy bucket and username
 @bot.command(name="externalusers", aliases=["extusers", "trustedusers", "friendusers", "trus", "frus"])
 async def externalusers_prefix(ctx: commands.Context):
+    """List trusted, friended, blocked, and muted users."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3864,6 +3818,7 @@ async def externalusers_prefix(ctx: commands.Context):
 # Cor;unmuteuser — Remove a user from the muted list
 @bot.command(name="unmuteuser", aliases=["umu"])
 async def unmuteuser_prefix(ctx: commands.Context, user_id: str):
+    """Stop ignoring a muted user's messages."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -3886,6 +3841,7 @@ async def unmuteuser_prefix(ctx: commands.Context, user_id: str):
 # Cor;mutedusers — List all muted users
 @bot.command(name="mutedusers", aliases=["mus"])
 async def mutedusers_prefix(ctx: commands.Context):
+    """List all muted external senders."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3902,6 +3858,7 @@ async def mutedusers_prefix(ctx: commands.Context):
 # Cor;tempblockuser — Temporarily block a user for a set number of hours
 @bot.command(name="tempblockuser", aliases=["tbu"])
 async def tempblockuser_prefix(ctx: commands.Context, user_id: str, hours: int = 24):
+    """Temporarily block a user from external messaging."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -3925,6 +3882,7 @@ async def tempblockuser_prefix(ctx: commands.Context, user_id: str, hours: int =
 # Cor;tempblockedusers — List active temporary blocks
 @bot.command(name="tempblockedusers", aliases=["tbus"])
 async def tempblockedusers_prefix(ctx: commands.Context):
+    """List temporarily blocked users."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -3945,6 +3903,7 @@ async def tempblockedusers_prefix(ctx: commands.Context):
 # Cor;blockuser — Permanently block a user from sending external messages
 @bot.command(name="blockuser", aliases=["bu"])
 async def blockuser_prefix(ctx: commands.Context, user_id: str):
+    """Block a user from external messaging."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -3980,6 +3939,7 @@ async def blockuser_prefix(ctx: commands.Context, user_id: str):
 # Cor;unblockuser — Remove a user from the blocked list
 @bot.command(name="unblockuser", aliases=["ubu"])
 async def unblockuser_prefix(ctx: commands.Context, user_id: str):
+    """Unblock a user for external messages."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -4011,6 +3971,7 @@ async def unblockuser_prefix(ctx: commands.Context, user_id: str):
 # Cor;blockedusers — List all blocked users
 @bot.command(name="blockedusers", aliases=["bus"])
 async def blockedusers_prefix(ctx: commands.Context):
+    """List all blocked users."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4033,6 +3994,7 @@ async def blockedusers_prefix(ctx: commands.Context):
 # Cor;externalpending — Show pending external message requests by sender
 @bot.command(name="externalpending", aliases=["ep"])
 async def externalpending_prefix(ctx: commands.Context):
+    """View pending external message requests."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4054,6 +4016,7 @@ async def externalpending_prefix(ctx: commands.Context):
 # Cor;approveexternal — Approve or reject pending external messages from a user
 @bot.command(name="approveexternal", aliases=["apx"])
 async def approveexternal_prefix(ctx: commands.Context, user_id: str, approve: str = "true"):
+    """Approve a pending external message."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -4110,6 +4073,7 @@ async def approveexternal_prefix(ctx: commands.Context, user_id: str, approve: s
 # Cor;recentexternal — Show recent external messaging audit log entries
 @bot.command(name="recentexternal", aliases=["rex"])
 async def recentexternal_prefix(ctx: commands.Context, limit: int = 10):
+    """View recently received external messages."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4136,6 +4100,7 @@ async def recentexternal_prefix(ctx: commands.Context, limit: int = 10):
 # Cor;externalquiethours — Configure quiet hours for external DM delivery
 @bot.command(name="externalquiethours", aliases=["eqh"])
 async def externalquiethours_prefix(ctx: commands.Context, enabled: str, start_hour: int = 23, end_hour: int = 7):
+    """Set quiet hours for external messages."""
     parsed = parse_bool_token(enabled)
     if parsed is None:
         await ctx.send("Invalid enabled value. Use true/false.")
@@ -4160,6 +4125,7 @@ async def externalquiethours_prefix(ctx: commands.Context, enabled: str, start_h
 # Cor;externalretention — Set inbox retention period in days
 @bot.command(name="externalretention", aliases=["ert"])
 async def externalretention_prefix(ctx: commands.Context, days: int):
+    """Set external inbox retention period."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4178,6 +4144,7 @@ async def externalretention_prefix(ctx: commands.Context, days: int):
 # Cor;reportexternal — Report a user for external messaging abuse
 @bot.command(name="reportexternal", aliases=["rptx"])
 async def reportexternal_prefix(ctx: commands.Context, user_id: str, *, reason: str):
+    """Report abuse from an external sender."""
     reporter_id = ctx.author.id
     parsed = parse_discord_user_id(user_id)
     if not parsed:
@@ -4208,6 +4175,7 @@ async def reportexternal_prefix(ctx: commands.Context, user_id: str, *, reason: 
 # Cor;modreports — List open moderation reports
 @bot.command(name="modreports", aliases=["mr"])
 async def modreports_prefix(ctx: commands.Context, limit: int = 15):
+    """View moderation reports (admin only)."""
     if limit < 1 or limit > 50:
         await ctx.send("Limit must be between 1 and 50.")
         return
@@ -4226,6 +4194,7 @@ async def modreports_prefix(ctx: commands.Context, limit: int = 15):
 # Cor;modwarn — Issue a warning to a user
 @bot.command(name="modwarn", aliases=["mw"])
 async def modwarn_prefix(ctx: commands.Context, user_id: str, *, reason: str = "No reason provided"):
+    """Warn a user (admin only)."""
     parsed = parse_discord_user_id(user_id)
     if not parsed:
         await ctx.send("Invalid user ID.")
@@ -4241,6 +4210,7 @@ async def modwarn_prefix(ctx: commands.Context, user_id: str, *, reason: str = "
 # Cor;modsuspend — Temporarily suspend a user for a set number of hours
 @bot.command(name="modsuspend", aliases=["msu"])
 async def modsuspend_prefix(ctx: commands.Context, user_id: str, hours: int = 24, scope: str = "external", *, reason: str = "No reason provided"):
+    """Suspend a user (admin only)."""
     parsed = parse_discord_user_id(user_id)
     if not parsed:
         await ctx.send("Invalid user ID.")
@@ -4264,6 +4234,7 @@ async def modsuspend_prefix(ctx: commands.Context, user_id: str, hours: int = 24
 # Cor;modban — Permanently ban a user from external or all bot features
 @bot.command(name="modban", aliases=["mb"])
 async def modban_prefix(ctx: commands.Context, user_id: str, scope: str = "external", *, reason: str = "No reason provided"):
+    """Ban a user from the bot (admin only)."""
     parsed = parse_discord_user_id(user_id)
     if not parsed:
         await ctx.send("Invalid user ID.")
@@ -4286,6 +4257,7 @@ async def modban_prefix(ctx: commands.Context, user_id: str, scope: str = "exter
 # Cor;modunban — Clear bans/suspensions for a user, optionally reset warnings
 @bot.command(name="modunban", aliases=["mub"])
 async def modunban_prefix(ctx: commands.Context, user_id: str, clear_warnings: str = "false"):
+    """Unban a user (admin only)."""
     parsed = parse_discord_user_id(user_id)
     if not parsed:
         await ctx.send("Invalid user ID.")
@@ -4309,6 +4281,7 @@ async def modunban_prefix(ctx: commands.Context, user_id: str, clear_warnings: s
 # Cor;modappeal — Submit a moderation appeal message
 @bot.command(name="modappeal", aliases=["map"])
 async def modappeal_prefix(ctx: commands.Context, *, message: str):
+    """Submit an appeal for a moderation action."""
     if len(message.strip()) < 5:
         await ctx.send("Please provide a longer appeal message.")
         return
@@ -4362,6 +4335,7 @@ async def sendmessage_prefix(ctx: commands.Context, *, args: str = None):
 # Cor;pendingfriends — List incoming pending friend requests
 @bot.command(name="pendingfriends", aliases=["pfru"])
 async def pendingfriends_prefix(ctx: commands.Context):
+    """View pending friend requests."""
     user_id = ctx.author.id
     system_id = get_user_system_id(user_id)
     if not system_id:
@@ -4383,6 +4357,7 @@ async def pendingfriends_prefix(ctx: commands.Context):
 # Cor;acceptfriend — Accept a pending friend request (adds mutual friends)
 @bot.command(name="acceptfriend", aliases=["afru"])
 async def acceptfriend_prefix(ctx: commands.Context, user_id: str):
+    """Accept a pending friend request."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:
@@ -4439,6 +4414,7 @@ async def acceptfriend_prefix(ctx: commands.Context, user_id: str):
 # Cor;denyfriend — Deny a pending friend request
 @bot.command(name="denyfriend", aliases=["dfru"])
 async def denyfriend_prefix(ctx: commands.Context, user_id: str):
+    """Deny a pending friend request."""
     owner_id = ctx.author.id
     system_id = get_user_system_id(owner_id)
     if not system_id:

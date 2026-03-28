@@ -8,7 +8,7 @@ import re
 from config import bot, SCHEDULED_MESSAGES
 from data import systems_data, save_systems
 from helpers import (
-    get_front_reminder_settings, get_scope_label,
+    get_front_reminder_settings, scope_id_label,
     iter_system_member_dicts, format_duration,
     get_checkin_settings, get_system_timezone,
     current_week_key, build_weekly_checkin_summary,
@@ -19,6 +19,7 @@ from helpers import (
 
 @tasks.loop(minutes=5)
 async def front_reminder_loop():
+    """Check all systems for members fronting longer than the configured threshold and DM the owner."""
     any_updates = False
     now = datetime.now(timezone.utc)
 
@@ -62,7 +63,7 @@ async def front_reminder_loop():
                     if co_id in members_dict
                 ]
                 cofront_text = f" Co-fronts: {', '.join(cofront_names)}." if cofront_names else ""
-                scope_text = get_scope_label(scope_id)
+                scope_text = scope_id_label(scope_id)
                 duration_text = format_duration(elapsed_seconds)
                 dm_text = (
                     f"Reminder: **{member.get('name', 'Unknown')}** has been fronting in your {scope_text} "
@@ -84,6 +85,7 @@ async def front_reminder_loop():
 
 @front_reminder_loop.before_loop
 async def before_front_reminder_loop():
+    """Wait for bot readiness before starting front reminder checks."""
     await bot.wait_until_ready()
 
 def load_persisted_scheduled_messages():
@@ -146,12 +148,10 @@ async def scheduled_messages_loop():
                 if now >= send_at:
                     try:
                         user = bot.get_user(int(user_id)) or await bot.fetch_user(int(user_id))
-                        print(f"[DEBUG] Attempting scheduled DM delivery to user {user_id} at {send_at}")
                         await user.send(msg_data["message"])
                         delivered.append(msg_data)
                         any_delivered = True
                     except (ValueError, discord.Forbidden, discord.HTTPException):
-                        print(f"[DEBUG] Scheduled DM delivery failed for user {user_id} at {send_at}")
                         pass
                 else:
                     pending.append(msg_data)
@@ -172,10 +172,12 @@ async def scheduled_messages_loop():
 
 @scheduled_messages_loop.before_loop
 async def before_scheduled_messages_loop():
+    """Wait for bot readiness before starting scheduled message delivery."""
     await bot.wait_until_ready()
 
 @tasks.loop(hours=24)
 async def weekly_mood_summary_loop():
+    """Send weekly check-in mood summaries and clean up expired inbox entries. Runs every 24 hours."""
     any_updates = False
     now = datetime.now(timezone.utc)
 
@@ -213,6 +215,7 @@ async def weekly_mood_summary_loop():
 
 @weekly_mood_summary_loop.before_loop
 async def before_weekly_mood_summary_loop():
+    """Wait for bot readiness before starting weekly mood summary loop."""
     await bot.wait_until_ready()
 
 
@@ -248,6 +251,7 @@ def _parse_birthday_month_day(raw_birthday):
 
 @tasks.loop(hours=6)
 async def birthday_reminder_loop():
+    """Check all systems for upcoming member birthdays and DM reminders. Runs every 6 hours."""
     any_updates = False
     now = datetime.now(timezone.utc)
 
@@ -289,7 +293,7 @@ async def birthday_reminder_loop():
                     if birthday != target_month_day:
                         continue
                     member_name = member.get("name", "Unknown")
-                    scope_label = get_scope_label(scope_id)
+                    scope_label = scope_id_label(scope_id)
                     matches.append(f"- {member_name} ({scope_label})")
 
             if not matches:
@@ -340,4 +344,5 @@ async def birthday_reminder_loop():
 
 @birthday_reminder_loop.before_loop
 async def before_birthday_reminder_loop():
+    """Wait for bot readiness before starting birthday reminder checks."""
     await bot.wait_until_ready()

@@ -1,7 +1,7 @@
 
 # Cortex Discord Bot
 
-**Version**: 2.3.0 | **Last Updated**: March 27, 2026 | **Python**: 3.12.10 | **Deployed on**: Railway
+**Version**: 2.3.0 | **Last Updated**: March 28, 2026 | **Python**: 3.12.10 | **Deployed on**: Railway
 
 
 ## System Hierarchy Overview
@@ -54,18 +54,18 @@ Cortex is a Discord bot for managing **plural systems** (multiple distinct ident
 
 ## Architecture
 
-9-file modular structure (~13,700 lines total):
+11-file modular structure (~15,400 lines total):
 
 ```
 cortex.py          (30 lines)   Entry point — imports modules, patches interaction check, runs bot
-config.py         (158 lines)   Constants, env vars, bot instance, runtime state
-data.py           (324 lines)   Data persistence — local JSON + GitHub sync with background workers
-helpers.py       (2612 lines)   80+ utility functions (core logic lives here)
-commands_slash.py (5211 lines)   90+ slash commands
-commands_prefix.py(3950 lines)   80+ prefix commands (mirrors slash commands with Cor; prefix)
-events.py         (656 lines)   on_ready, on_message (proxy routing), on_message_edit, on_raw_reaction_add
+config.py         (160 lines)   Constants, env vars, bot instance, runtime state
+data.py           (464 lines)   Data persistence — local JSON + GitHub sync with background workers
+helpers.py       (2887 lines)   80+ utility functions (core logic lives here)
+commands_slash.py (5705 lines)   90 slash commands
+commands_prefix.py(4483 lines)   97 prefix commands (mirrors slash commands with Cor; prefix)
+events.py         (713 lines)   on_ready, on_message (proxy routing), on_message_edit, on_raw_reaction_add
 tasks.py          (343 lines)   4 background loops (front reminders, mood summaries, scheduled messages, birthdays)
-views.py          (443 lines)   Discord UI components (buttons, selects, modals, paginators)
+views.py          (554 lines)   Discord UI components (buttons, selects, modals, paginators)
 ```
 
 ### Module Dependencies
@@ -195,7 +195,7 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 - **Max external audit**: 200 entries
 
 
-## Command Categories (90+ slash, 80+ prefix)
+## Command Categories (90 slash, 97 prefix)
 
 **Note:** Most member/group/tag commands now accept `side_id` and/or `subsystem_id` to specify the target scope. If only `subsystem_id` is provided, the main system's subsystems are used. If both are provided, the subsystem is resolved within the given side system. If neither is provided, the main system's members are used.
 
@@ -205,7 +205,7 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 - `/addmember subsystem_id=main_sub` — Add a member to a main system subsystem
 
 ### System Setup
-`/register`, `/createsubsystem`, `/editsubsystem`, `/deletesystem`, `/clearsystem`, `/clearall`, `/refresh`, `/synccommands`
+`/register`, `/createsubsystem`, `/createsidesubsystem`, `/editsubsystem`, `/deletesystem`, `/clearsystem`, `/clearall`, `/refresh`, `/synccommands`
 
 ### System Profile
 `/viewsystemcard`, `/editsystemcard`, `/viewsubsystemcard`, `/editsubsystemcard`, `/listsubsystems`, `/systemtag`, `/systemprivacy`
@@ -357,7 +357,17 @@ All commands pass through `_global_interaction_check` / `prefix_command_gate`:
 #### [1.9.0] — Pre-Refactor (Deprecated)
 - Original monolithic single-file bot with all core features
 
-### Post-2.2.1 Fixes (unreleased)
+#### [2.3.0] — March 27, 2026 — Side System Hierarchy & Stability
+- Unified side system ID assignment logic (`get_next_side_system_id`) across all commands and imports
+- Added `/createsidesubsystem` slash command and `Cor;createsidesubsystem` prefix command
+- Added `Cor;createsidesystem` prefix command for creating side systems
+- Added `Cor;deletesubsystem` prefix command — deletes subsystems from main or side systems
+- `/listsubsystems` and `Cor;listsubsystems` now aggregate subsystems from both main and all side systems
+- Added early `await interaction.response.defer()` to major slash commands to prevent Discord interaction timeout errors
+- Fixed all indentation/syntax errors in side_id/subsystem_id parameter handling
+- Fixed duplicate/misplaced command definitions in commands_prefix.py
+
+### Pre-2.3.0 Fixes (rolled into 2.3.0)
 - Fixed front duration double-counting, shutdown race condition, scheduled message persistence
 - Fixed `/members` paginator state and page navigation
 - Added untracked member support (`/toggleuntracked`) — excluded from member listings
@@ -442,10 +452,10 @@ d:\Programming\Discord bot\
 ├── CLAUDE.md                  This file (auto-loaded by Claude Code)
 └── systems/                   Per-system JSON data files
     └── 1.json through 9.json
-
-  ## Testing & Validation
-
-  - Update or add tests to cover all hierarchy scenarios: main, side, and subsystem operations for all commands and UI components.
-  - Validate that all UI components (views, paginators, selectors) work with side systems and subsystems.
-  - Test edge cases: moving members between scopes, deleting sides/subsystems, privacy/permission checks across all scopes.
 ```
+
+## Testing & Validation
+
+- Update or add tests to cover all hierarchy scenarios: main, side, and subsystem operations for all commands and UI components.
+- Validate that all UI components (views, paginators, selectors) work with side systems and subsystems.
+- Test edge cases: moving members between scopes, deleting sides/subsystems, privacy/permission checks across all scopes.

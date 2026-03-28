@@ -1,6 +1,7 @@
+"""Discord UI components: buttons, selects, modals, paginators, and confirmation dialogs."""
+
 import discord
 
-from config import bot
 from data import systems_data, save_systems
 from helpers import (
     get_group_settings, build_group_order_cv2, get_scope_label, get_system_members,
@@ -13,6 +14,8 @@ from helpers import (
 # -----------------------------
 
 class _FocusUpButton(discord.ui.Button):
+    """Button to focus up in the group order UI."""
+
     def __init__(self):
         super().__init__(label="Focus Up", style=discord.ButtonStyle.secondary)
 
@@ -25,6 +28,8 @@ class _FocusUpButton(discord.ui.Button):
 
 
 class _FocusDownButton(discord.ui.Button):
+    """Button to focus down in the group order UI."""
+
     def __init__(self):
         super().__init__(label="Focus Down", style=discord.ButtonStyle.secondary)
 
@@ -37,6 +42,8 @@ class _FocusDownButton(discord.ui.Button):
 
 
 class _MoveUpButton(discord.ui.Button):
+    """Button to move up in the group order UI."""
+
     def __init__(self):
         super().__init__(label="Move Up", style=discord.ButtonStyle.primary)
 
@@ -51,6 +58,8 @@ class _MoveUpButton(discord.ui.Button):
 
 
 class _MoveDownButton(discord.ui.Button):
+    """Button to move down in the group order UI."""
+
     def __init__(self):
         super().__init__(label="Move Down", style=discord.ButtonStyle.primary)
 
@@ -65,6 +74,8 @@ class _MoveDownButton(discord.ui.Button):
 
 
 class _SaveButton(discord.ui.Button):
+    """Save the reordered group list."""
+
     def __init__(self):
         super().__init__(label="Save", style=discord.ButtonStyle.success)
 
@@ -91,6 +102,8 @@ class _SaveButton(discord.ui.Button):
 
 
 class _CancelButton(discord.ui.Button):
+    """Cancel group reordering without saving."""
+
     def __init__(self):
         super().__init__(label="Cancel", style=discord.ButtonStyle.danger)
 
@@ -102,6 +115,8 @@ class _CancelButton(discord.ui.Button):
 
 
 class GroupOrderView(discord.ui.LayoutView):
+    """Interactive LayoutView for reordering member groups with focus/move controls. Times out after 3 minutes."""
+
     def __init__(self, owner_id, system):
         super().__init__(timeout=180)
         self.owner_id = owner_id
@@ -164,6 +179,8 @@ class GroupOrderView(discord.ui.LayoutView):
 # Tag selection views
 # -----------------------------
 class TagSelect(discord.ui.Select):
+    """Dropdown select for choosing member tags from available options."""
+
     def __init__(self, available_tags, preselected=None):
         options = [
             discord.SelectOption(label=tag, value=tag, default=(tag in preselected if preselected else False))
@@ -182,6 +199,8 @@ class TagSelect(discord.ui.Select):
 
 
 class ConfirmTags(discord.ui.Button):
+    """Button to confirm tag selection and close the view."""
+
     def __init__(self):
         super().__init__(label="Confirm", style=discord.ButtonStyle.green)
 
@@ -191,6 +210,8 @@ class ConfirmTags(discord.ui.Button):
 
 
 class TagView(discord.ui.View):
+    """View combining a tag dropdown selector with a confirm button."""
+
     def __init__(self, available_tags, preselected=None):
         super().__init__(timeout=120)
         self.selected_tags = preselected or []
@@ -200,6 +221,8 @@ class TagView(discord.ui.View):
 
 
 class TagMultiSelect(discord.ui.Select):
+    """Dropdown for filtering members by one or more tags. Rebuilds the view with matching results."""
+
     def __init__(self, available_tags, members_dict, side_id=None, subsystem_id=None):
         self.members_dict = members_dict
         self.side_id = side_id
@@ -238,6 +261,8 @@ class TagMultiSelect(discord.ui.Select):
 
 
 class TagMultiView(discord.ui.LayoutView):
+    """LayoutView wrapper for the tag browser with intro text and tag dropdown."""
+
     def __init__(self, available_tags, members_dict, side_id=None, subsystem_id=None):
         super().__init__(timeout=None)
         self.side_id = side_id
@@ -256,6 +281,8 @@ class TagMultiView(discord.ui.LayoutView):
 # Co-front UI
 # -----------------------------
 class CoFrontSelect(discord.ui.Select):
+    """Dropdown for selecting co-fronting members on the current page."""
+
     def __init__(self, parent_view):
         self.parent_view = parent_view
         self.side_id = getattr(parent_view, 'side_id', None)
@@ -276,6 +303,8 @@ class CoFrontSelect(discord.ui.Select):
 
 
 class CoFrontView(discord.ui.View):
+    """Paginated view for selecting co-fronting members, with Previous/Next navigation and Confirm/Cancel buttons."""
+
     def __init__(self, members_dict, main_member_id, side_id=None, subsystem_id=None):
         super().__init__(timeout=120)
         self.main_member_id = str(main_member_id)
@@ -357,6 +386,8 @@ class CoFrontView(discord.ui.View):
 # Confirmation buttons for dangerous actions
 # -----------------------------
 class ConfirmAction(discord.ui.View):
+    """Generic confirm/cancel dialog for dangerous actions. 30-second timeout."""
+
     def __init__(self, confirm_callback):
         super().__init__(timeout=30)
         self.confirm_callback = confirm_callback
@@ -376,6 +407,8 @@ class ConfirmAction(discord.ui.View):
 # Remove member confirmation
 # -----------------------------
 class ConfirmRemove(discord.ui.View):
+    """Confirmation dialog for removing a single member, scope-aware (main/side/subsystem)."""
+
     def __init__(self, member_id, system_id, side_id=None, subsystem_id=None):
         super().__init__(timeout=30)
         self.member_id = member_id
@@ -426,6 +459,8 @@ class ConfirmRemove(discord.ui.View):
 # Multi-member removal
 # -----------------------------
 class MultiMemberSelect(discord.ui.Select):
+    """Dropdown for selecting members to remove on the current page."""
+
     def __init__(self, parent_view):
         self.parent_view = parent_view
         options = self.parent_view.build_page_options()
@@ -444,6 +479,8 @@ class MultiMemberSelect(discord.ui.Select):
 
 
 class MultiMemberView(discord.ui.View):
+    """Paginated view for bulk-selecting members to remove, with navigation and confirm/cancel."""
+
     def __init__(self, members_dict, side_id=None, subsystem_id=None):
         super().__init__(timeout=120)
         self.members_dict = members_dict
@@ -522,6 +559,8 @@ class MultiMemberView(discord.ui.View):
 # Clear all members (dangerous!)
 # -----------------------------
 class ConfirmClearSystem(discord.ui.View):
+    """Confirmation dialog that removes ALL members from the entire system hierarchy."""
+
     def __init__(self, system):
         super().__init__(timeout=30)
         self.system = system

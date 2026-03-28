@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import base64
+import time
 import signal
 import threading
 import urllib.request
@@ -271,7 +272,6 @@ def _github_save_file(filename, data_obj, retries=6, branch=None):
         except urllib.error.HTTPError as e:
             print(f"[WARN] GitHub save attempt {attempt}/{retries} for {filename} failed: HTTP Error {e.code}: {e.reason}")
             if attempt < retries:
-                import time
                 # 409 Conflict means stale SHA — exponential backoff with jitter to avoid thundering herd
                 if e.code == 409:
                     delay = min(60, 2 ** attempt)
@@ -281,7 +281,6 @@ def _github_save_file(filename, data_obj, retries=6, branch=None):
         except Exception as e:
             print(f"[WARN] GitHub save attempt {attempt}/{retries} for {filename} failed: {e}")
             if attempt < retries:
-                import time
                 time.sleep(2 * attempt)
     print(f"[ERROR] All {retries} attempts to push {filename} to GitHub failed")
 

@@ -14,6 +14,7 @@ if not TOKEN:
     raise RuntimeError("DISCORD_BOT_TOKEN environment variable not set.")
 
 def _normalize_discord_id(raw_value: str) -> str | None:
+    """Extract digits from a raw string to produce a clean Discord user ID."""
     value = (raw_value or "").strip()
     if not value:
         return None
@@ -22,7 +23,7 @@ def _normalize_discord_id(raw_value: str) -> str | None:
 
 
 def _parse_admin_user_ids(raw_value: str) -> set[str]:
-    # Accept comma, semicolon, or whitespace separated values, including mention-style inputs.
+    """Parse a comma/semicolon/whitespace-separated list of Discord user IDs."""
     tokens = re.split(r"[;,\s]+", raw_value or "")
     parsed = set()
     for token in tokens:
@@ -43,14 +44,17 @@ INSTANCE_LABEL = (os.getenv("CORTEX_INSTANCE_LABEL") or "").strip()
 JSON_FILE = "cortex_members.json"
 TAGS_FILE = "tags.json"
 
-PROXY_PREFIX = ";;"
-PROXY_WEBHOOK_NAME = "Cortex Proxy"
-EXTERNAL_MSG_LIMIT_COUNT = 5
-EXTERNAL_MSG_LIMIT_SECONDS = 60
-EXTERNAL_TARGET_LIMIT_SECONDS = 20
-EXTERNAL_AUDIT_MAX = 200
-MAX_PROXY_AUDIT_ENTRIES = 5000
-ORIGIN_LOOKUP_EMOJIS = {"❓", "❔"}
+# --- Proxy settings ---
+PROXY_PREFIX = ";;"                     # Prefix to send as the currently fronting/latched member
+PROXY_WEBHOOK_NAME = "Cortex Proxy"     # Name used for proxy webhook messages
+
+# --- Rate limits ---
+EXTERNAL_MSG_LIMIT_COUNT = 5            # Max external messages per user within the window
+EXTERNAL_MSG_LIMIT_SECONDS = 60         # Rate limit window (seconds)
+EXTERNAL_TARGET_LIMIT_SECONDS = 20      # Min seconds between messages to the same target
+EXTERNAL_AUDIT_MAX = 200                # Max stored external audit log entries per system
+MAX_PROXY_AUDIT_ENTRIES = 5000          # Max stored proxy message audit entries
+ORIGIN_LOOKUP_EMOJIS = {"❓", "❔"}     # Reaction emojis that trigger proxy origin DMs
 
 # Mutable runtime state
 external_msg_rate_state = {}
@@ -128,6 +132,7 @@ DEFAULT_FOCUS_MODES = [
 
 
 def with_instance_label(message: str) -> str:
+    """Prefix a message with the instance label (for multi-instance deployments)."""
     if not INSTANCE_LABEL:
         return message
     return f"[{INSTANCE_LABEL}] {message}"
@@ -146,8 +151,9 @@ intents.presences = True
 # CortexCommandTree is defined here but its interaction_check references
 # helpers that will be patched in at startup by cortex.py
 class CortexCommandTree(discord.app_commands.CommandTree):
+    """Custom command tree whose interaction_check is monkey-patched at startup by cortex.py."""
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        # This gets monkey-patched in cortex.py after helpers are loaded
         return True
 
 
