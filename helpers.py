@@ -1,32 +1,12 @@
-# ---------------------------------------------------------------------------
-# Side system ID helper
-# ---------------------------------------------------------------------------
-
-def get_next_side_system_id(system):
-    """Return the next available side system ID in '1a', '1b', ... style."""
-    # Collect all existing side system IDs
-    existing = set((system.get("side_systems") or {}).keys())
-    # Try 1a, 1b, ..., 1z, 2a, 2b, ...
-    for num in range(1, 100):
-        for letter in "abcdefghijklmnopqrstuvwxyz":
-            candidate = f"{num}{letter}"
-            if candidate not in existing:
-                return candidate
-    # Fallback: use a UUID if all combos are exhausted (very unlikely)
-    import uuid
-    return str(uuid.uuid4())
 # helpers.py — Helper/utility functions extracted from cortex.py
 
-import os
 import json
 import re
 import asyncio
-import base64
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-from copy import deepcopy
 
 import discord
 from discord import app_commands
@@ -68,6 +48,25 @@ from data import systems_data, save_systems
 # Legacy compatibility stub — the old flat members dict is no longer used for
 # new code, but start_front / end_front still reference it as a default arg.
 members = {}
+
+
+# ---------------------------------------------------------------------------
+# Side system ID helper
+# ---------------------------------------------------------------------------
+
+def get_next_side_system_id(system):
+    """Return the next available side system ID in '1a', '1b', ... style."""
+    # Collect all existing side system IDs
+    existing = set((system.get("side_systems") or {}).keys())
+    # Try 1a, 1b, ..., 1z, 2a, 2b, ...
+    for num in range(1, 100):
+        for letter in "abcdefghijklmnopqrstuvwxyz":
+            candidate = f"{num}{letter}"
+            if candidate not in existing:
+                return candidate
+    # Fallback: use a UUID if all combos are exhausted (very unlikely)
+    import uuid
+    return str(uuid.uuid4())
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +129,7 @@ def cv2_simple(title, description, color=None, footer=None):
 # ---------------------------------------------------------------------------
 
 def get_moderation_state():
+    """Return the _moderation dict from systems_data, creating it if absent."""
     state = systems_data.setdefault("_moderation", {})
     state.setdefault("reports", [])
     state.setdefault("sanctions", {})
@@ -138,6 +138,7 @@ def get_moderation_state():
     return state
 
 def get_user_sanctions(user_id):
+    """Return the sanctions dict for a user, or None."""
     state = get_moderation_state()
     sanctions = state.setdefault("sanctions", {}).setdefault(str(user_id), {})
     sanctions.setdefault("warnings", 0)
@@ -149,6 +150,7 @@ def get_user_sanctions(user_id):
     return sanctions
 
 def is_user_suspended(user_id, scope="external"):
+    """Check if a user is currently suspended, optionally for a specific scope."""
     sanctions = get_user_sanctions(user_id)
     until_iso = sanctions.get("suspended_until")
     if not until_iso:
@@ -162,9 +164,10 @@ def is_user_suspended(user_id, scope="external"):
         sanctions["suspended_until"] = None
         return False
     sanction_scope = sanctions.get("scope", "external")
-    return sanction_scope == "all" or scope == "external"
+    return sanction_scope == "all" or sanction_scope == scope
 
 def is_bot_moderator_user(user_id):
+    """Return True if the given user ID is a bot admin."""
     normalized_user_id = str(user_id)
 
     if ADMIN_USER_ID and str(user_id) == str(ADMIN_USER_ID):
@@ -185,6 +188,7 @@ def is_bot_moderator_user(user_id):
     return False
 
 async def ensure_moderator(interaction: discord.Interaction):
+    """Send an error and return False if the user is not a bot moderator."""
     if is_bot_moderator_user(interaction.user.id):
         return True
     if not interaction.response.is_done():
@@ -192,6 +196,7 @@ async def ensure_moderator(interaction: discord.Interaction):
     return False
 
 def add_mod_event(action, target_user_id=None, moderator_user_id=None, details=None):
+    """Append a moderation event to the audit log."""
     state = get_moderation_state()
     events = state.setdefault("events", [])
     events.append({
@@ -210,12 +215,14 @@ def add_mod_event(action, target_user_id=None, moderator_user_id=None, details=N
 # ---------------------------------------------------------------------------
 
 def get_user_system_id(user_id):
+    """Look up the system_id for a Discord user_id, or return None."""
     for sys_id, sys in systems_data["systems"].items():
         if str(sys.get("owner_id")) == str(user_id):
             return sys_id
     return None
 
 def get_user_mode(user_id):
+    """Return the system's mode ('system' or 'singlet')."""
     system_id = get_user_system_id(user_id)
     if not system_id:
         return None
@@ -223,6 +230,7 @@ def get_user_mode(user_id):
     return system.get("mode", "system")
 
 def parse_bool_token(value):
+    """Parse a string as a boolean value (yes/no/true/false/on/off/1/0)."""
     if value is None:
         return None
     cleaned = str(value).strip().lower()
@@ -239,6 +247,7 @@ def parse_bool_token(value):
 
 @bot.check
 async def prefix_command_gate(ctx: commands.Context):
+    """Gate check for prefix commands: enforce bans, singlet restrictions, and registration."""
     if ctx.command is None:
         return True
 
@@ -273,6 +282,7 @@ async def prefix_command_gate(ctx: commands.Context):
     return False
 
 async def _global_interaction_check(interaction: discord.Interaction) -> bool:
+    """Global gate for slash commands: enforce bans, singlet restrictions, and registration."""
     command = interaction.command
     if command is None:
         return True
@@ -325,14 +335,24 @@ async def _global_interaction_check(interaction: discord.Interaction) -> bool:
 # Member scope helpers
 # ---------------------------------------------------------------------------
 
-def get_system_members(system_id, subsystem_id=None):
-    """Return a list of members for a system and optional subsystem."""
+def get_system_members(system_id, side_id=None, subsystem_id=None):
+    """Return a dict of members for a system, side system, and/or subsystem."""
     if system_id not in systems_data["systems"]:
         return None
 
     system = systems_data["systems"][system_id]
 
-    # If subsystem_id is in any side system, return its members
+    if side_id is not None:
+        side = (system.get("side_systems", {}) or {}).get(side_id)
+        if not side:
+            return None
+        if subsystem_id is not None:
+            subs = side.get("subsystems", {})
+            if subsystem_id in subs:
+                return subs[subsystem_id].get("members", {})
+            return None
+        return side.get("members", {})
+
     if subsystem_id is not None:
         # Check main system subsystems
         subsystems = system.get("subsystems", {})
@@ -344,8 +364,8 @@ def get_system_members(system_id, subsystem_id=None):
             if subsystem_id in subs:
                 return subs[subsystem_id].get("members", {})
         return None
-    else:
-        return system.get("members", {})
+
+    return system.get("members", {})
 
 def get_scope_label(side_id=None, subsystem_id=None):
     if side_id and subsystem_id:
@@ -356,6 +376,18 @@ def get_scope_label(side_id=None, subsystem_id=None):
         return f"subsystem `{subsystem_id}`"
     else:
         return "main system"
+
+def scope_id_label(scope_id):
+    """Convert a scope_id from iter_system_member_dicts to a human-readable label."""
+    if scope_id is None:
+        return "main system"
+    if isinstance(scope_id, str):
+        return f"subsystem `{scope_id}`"
+    if isinstance(scope_id, tuple) and len(scope_id) == 2:
+        return f"side system `{scope_id[1]}`"
+    if isinstance(scope_id, tuple) and len(scope_id) == 3:
+        return f"side system `{scope_id[1]}` > subsystem `{scope_id[2]}`"
+    return "main system"
 
 def iter_system_member_dicts(system):
     """Yield (scope_id, members_dict) for main system and each subsystem."""
@@ -1188,6 +1220,7 @@ def build_weekly_checkin_summary(system):
     )
 
 def current_week_key(now=None):
+    """Return a YYYY-WNN string for the ISO week containing the given datetime."""
     if now is None:
         now = datetime.now(timezone.utc)
     iso = now.isocalendar()
@@ -1301,8 +1334,6 @@ def is_ephemeral_discord_attachment_url(value):
     """Return True when a Discord attachment URL is from the ephemeral attachment host/path."""
     raw = str(value or "").lower()
     return "ephemeral-attachments" in raw
-
-import re
 
 # --- Decorative-run shortener for mobile-friendly descriptions ---
 _MAX_DECOR_RUN = 8
@@ -1481,7 +1512,6 @@ def build_member_profile_cv2(member, system=None, side_id=None, subsystem_id=Non
     container.add_item(discord.ui.TextDisplay(header_text))
 
     # Scope label
-    from helpers import get_scope_label
     scope_label = get_scope_label(side_id, subsystem_id)
     container.add_item(discord.ui.TextDisplay(f"**Scope:** {scope_label}"))
 
@@ -2687,7 +2717,7 @@ async def subsystem_id_autocomplete(interaction: discord.Interaction, current: s
         system = systems_data.get("systems", {}).get(system_id, {})
         # If side_id is present, look for subsystems under that side system
         if side_id:
-            sides = system.get("sidesystems", {})
+            sides = system.get("side_systems", {})
             side = sides.get(side_id, {})
             subsystems = side.get("subsystems", {})
         else:
