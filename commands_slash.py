@@ -91,7 +91,6 @@ from helpers import (
     get_member_lookup_keys,
     format_playlist_link,
     normalize_embed_image_url,
-    is_ephemeral_discord_attachment_url,
     get_fronting_member_for_user,
     find_tagged_proxy_member,
     get_member_proxy_parts,
@@ -679,6 +678,8 @@ async def editsubsystemcard(
     color: str = None,
     profile_pic: discord.Attachment = None,
     banner: discord.Attachment = None,
+    profile_pic_url: str = None,
+    banner_url: str = None,
     clear_profile_pic: bool = False,
     clear_banner: bool = False
 ):
@@ -708,33 +709,23 @@ async def editsubsystemcard(
             await interaction.response.send_message(str(e), ephemeral=True)
             return
 
-    warnings = []
-
     if clear_profile_pic:
         subsystem_data.pop("profile_pic", None)
+    elif profile_pic_url:
+        subsystem_data["profile_pic"] = profile_pic_url.strip()
     elif profile_pic:
         subsystem_data["profile_pic"] = profile_pic.url
-        if is_ephemeral_discord_attachment_url(profile_pic.url):
-            warnings.append("profile pic")
 
     if clear_banner:
         subsystem_data.pop("banner", None)
+    elif banner_url:
+        subsystem_data["banner"] = banner_url.strip()
     elif banner:
         subsystem_data["banner"] = banner.url
-        if is_ephemeral_discord_attachment_url(banner.url):
-            warnings.append("banner")
 
     save_systems()
     container = build_subsystem_card_cv2(subsystem_data, subsystem_id, system)
-    msg = "Subsystem card updated."
-    if warnings:
-        joined = ", ".join(warnings)
-        msg += (
-            f"\n\u26a0\ufe0f Discord provided an expiring attachment URL for {joined}. "
-            "If images disappear later, upload your image to a service like Imgur, copy the direct image URL, and use that as your profile pic or banner. "
-            "(Direct URLs from image hosts are permanent; Discord uploads expire after a short time.)"
-        )
-    await interaction.response.send_message(msg, view=cv2_view(container), ephemeral=True)
+    await interaction.response.send_message("Subsystem card updated.", view=cv2_view(container), ephemeral=True)
 
 
 # /listsubsystems — List all subsystems with IDs and member counts
@@ -1201,6 +1192,8 @@ async def editsystemcard(
     color: str = None,
     profile_pic: discord.Attachment = None,
     banner: discord.Attachment = None,
+    profile_pic_url: str = None,
+    banner_url: str = None,
     clear_profile_pic: bool = False,
     clear_banner: bool = False
 ):
@@ -1231,31 +1224,22 @@ async def editsystemcard(
             await interaction.response.send_message(str(e), ephemeral=True)
             return
 
-    warnings = []
-
     if clear_profile_pic:
         profile["profile_pic"] = None
+    elif profile_pic_url:
+        profile["profile_pic"] = profile_pic_url.strip()
     elif profile_pic:
         profile["profile_pic"] = profile_pic.url
-        if is_ephemeral_discord_attachment_url(profile_pic.url):
-            warnings.append("profile pic")
 
     if clear_banner:
         profile["banner"] = None
+    elif banner_url:
+        profile["banner"] = banner_url.strip()
     elif banner:
         profile["banner"] = banner.url
-        if is_ephemeral_discord_attachment_url(banner.url):
-            warnings.append("banner")
 
     save_systems()
-    msg = "System card updated."
-    if warnings:
-        joined = ", ".join(warnings)
-        msg += (
-            f"\n\u26a0\ufe0f Discord provided an expiring attachment URL for {joined}. "
-            "If images disappear later, try uploading via a direct image URL or re-uploading."
-        )
-    await interaction.response.send_message(msg, ephemeral=True)
+    await interaction.response.send_message("System card updated.", ephemeral=True)
 
 # /serveridentity — Set server-specific display name, tag, or icon for this server
 @tree.command(name="serveridentity", description="Set server-specific system tag, display name, or icon for this server")
@@ -1264,6 +1248,7 @@ async def serveridentity(
     display_name: str = None,
     system_tag: str = None,
     profile_pic: discord.Attachment = None,
+    profile_pic_url: str = None,
     clear_display_name: bool = False,
     clear_system_tag: bool = False,
     clear_profile_pic: bool = False,
@@ -1308,12 +1293,12 @@ async def serveridentity(
     if clear_profile_pic:
         server_app.pop("profile_pic", None)
         changed.append("Server icon cleared.")
+    elif profile_pic_url is not None:
+        server_app["profile_pic"] = profile_pic_url.strip()
+        changed.append("Server icon updated.")
     elif profile_pic is not None:
         server_app["profile_pic"] = profile_pic.url
-        msg = "Server icon updated."
-        if is_ephemeral_discord_attachment_url(profile_pic.url):
-            msg += " \u26a0\ufe0f Discord provided an expiring URL — image may disappear later."
-        changed.append(msg)
+        changed.append("Server icon updated.")
 
     if not server_app:
         overrides.pop(guild_key, None)
@@ -1384,6 +1369,7 @@ async def servermemberidentity(
     display_name: str = None,
     system_tag: str = None,
     profile_pic: discord.Attachment = None,
+    profile_pic_url: str = None,
     clear_display_name: bool = False,
     clear_system_tag: bool = False,
     clear_profile_pic: bool = False,
@@ -1443,12 +1429,12 @@ async def servermemberidentity(
     if clear_profile_pic:
         override.pop("profile_pic", None)
         changed.append("Member server icon cleared.")
+    elif profile_pic_url is not None:
+        override["profile_pic"] = profile_pic_url.strip()
+        changed.append("Member server icon updated.")
     elif profile_pic is not None:
         override["profile_pic"] = profile_pic.url
-        msg = "Member server icon updated."
-        if is_ephemeral_discord_attachment_url(profile_pic.url):
-            msg += " \u26a0\ufe0f Discord provided an expiring URL — image may disappear later."
-        changed.append(msg)
+        changed.append("Member server icon updated.")
 
     if not override:
         by_guild.pop(member_key, None)
@@ -1571,6 +1557,8 @@ async def addmember(
     description: str = None,
     profile_pic: discord.Attachment = None,
     banner: discord.Attachment = None,
+    profile_pic_url: str = None,
+    banner_url: str = None,
     yt_playlist: str = None,
     color: str = None,
     proxy_tag: str = None
@@ -1636,8 +1624,8 @@ async def addmember(
         "pronouns": pronouns,
         "birthday": birthday,
         "description": description,
-        "profile_pic": profile_pic.url if profile_pic else None,
-        "banner": banner.url if banner else None,
+        "profile_pic": profile_pic_url.strip() if profile_pic_url else (profile_pic.url if profile_pic else None),
+        "banner": banner_url.strip() if banner_url else (banner.url if banner else None),
         "yt_playlist": yt_playlist,
         "tags": tags_list,
         "groups": [],
@@ -1653,15 +1641,7 @@ async def addmember(
         "front_history": []
     }
     save_systems()
-    ephemeral_warnings = []
-    if profile_pic and is_ephemeral_discord_attachment_url(profile_pic.url):
-        ephemeral_warnings.append("profile pic")
-    if banner and is_ephemeral_discord_attachment_url(banner.url):
-        ephemeral_warnings.append("banner")
     msg = f"Member **{name}** added to {get_scope_label(side_id, subsystem_id)}.\nID `{member_id}`"
-    if ephemeral_warnings:
-        joined = ", ".join(ephemeral_warnings)
-        msg += f"\n\u26a0\ufe0f Discord provided an expiring URL for {joined}. If images disappear later, re-upload using `Cor;editmemberimages`."
     await interaction.followup.send(msg, ephemeral=True)
 
 
@@ -4338,6 +4318,8 @@ async def editmember(
     color: str = None,
     profile_pic: discord.Attachment = None,
     banner: discord.Attachment = None,
+    profile_pic_url: str = None,
+    banner_url: str = None,
     proxy_tag: str = None,
     proxy_tag_position: str = "prefix",
     clear_proxy_tag: bool = False,
@@ -4406,17 +4388,18 @@ async def editmember(
         except ValueError:
             await interaction.response.send_message("Invalid HEX color.", ephemeral=True)
             return
-    ephemeral_warnings = []
-    if profile_pic:
+    if profile_pic_url:
+        member["profile_pic"] = profile_pic_url.strip()
+        updated_fields.append("profile picture")
+    elif profile_pic:
         member["profile_pic"] = profile_pic.url
         updated_fields.append("profile picture")
-        if is_ephemeral_discord_attachment_url(profile_pic.url):
-            ephemeral_warnings.append("profile pic")
-    if banner:
+    if banner_url:
+        member["banner"] = banner_url.strip()
+        updated_fields.append("banner")
+    elif banner:
         member["banner"] = banner.url
         updated_fields.append("banner")
-        if is_ephemeral_discord_attachment_url(banner.url):
-            ephemeral_warnings.append("banner")
     if clear_proxy_tag:
         set_member_proxy_formats(member, [])
         updated_fields.append("proxy tag cleared")
@@ -4444,27 +4427,15 @@ async def editmember(
             save_systems()
             updated_fields.append("tags")
             summary = ", ".join(updated_fields) if updated_fields else "no fields"
-            msg = f"Member **{member['name']}** updated: {summary}."
-            if ephemeral_warnings:
-                joined = ", ".join(ephemeral_warnings)
-                msg += f"\n\u26a0\ufe0f Discord provided an expiring URL for {joined}. If images disappear later, re-upload using `Cor;editmemberimages`."
-            await interaction.followup.send(msg)
+            await interaction.followup.send(f"Member **{member['name']}** updated: {summary}.")
         else:
             save_systems()
             summary = ", ".join(updated_fields) if updated_fields else "no fields"
-            msg = f"Tag selection timed out. Other changes were still saved: {summary}."
-            if ephemeral_warnings:
-                joined = ", ".join(ephemeral_warnings)
-                msg += f"\n\u26a0\ufe0f Discord provided an expiring URL for {joined}. If images disappear later, re-upload using `Cor;editmemberimages`."
-            await interaction.followup.send(msg)
+            await interaction.followup.send(f"Tag selection timed out. Other changes were still saved: {summary}.")
     else:
         save_systems()
         summary = ", ".join(updated_fields) if updated_fields else "no fields"
-        msg = f"Member **{member['name']}** updated: {summary}."
-        if ephemeral_warnings:
-            joined = ", ".join(ephemeral_warnings)
-            msg += f"\n\u26a0\ufe0f Discord provided an expiring URL for {joined}. If images disappear later, re-upload using `Cor;editmemberimages`."
-        await interaction.response.send_message(msg)
+        await interaction.response.send_message(f"Member **{member['name']}** updated: {summary}.")
 
 
 # /addmembertag — Add an additional proxy format to a member
@@ -4577,7 +4548,9 @@ async def editmemberimages(
     side_id: str = None,
     subsystem_id: str = None,
     profile_pic: discord.Attachment = None,
-    banner: discord.Attachment = None
+    banner: discord.Attachment = None,
+    profile_pic_url: str = None,
+    banner_url: str = None
 ):
     """Edit a member's profile picture or banner."""
     user_id = interaction.user.id
@@ -4616,27 +4589,17 @@ async def editmemberimages(
 
     member = members_dict[member_id]
 
-    warnings = []
-
-    if profile_pic:
+    if profile_pic_url:
+        member["profile_pic"] = profile_pic_url.strip()
+    elif profile_pic:
         member["profile_pic"] = profile_pic.url
-        if is_ephemeral_discord_attachment_url(profile_pic.url):
-            warnings.append("profile pic")
-    if banner:
+    if banner_url:
+        member["banner"] = banner_url.strip()
+    elif banner:
         member["banner"] = banner.url
-        if is_ephemeral_discord_attachment_url(banner.url):
-            warnings.append("banner")
 
     save_systems()
-    msg = f"Updated profile/banner for **{member['name']}**."
-    if warnings:
-        joined = ", ".join(warnings)
-        msg += (
-            "\nNote: Discord provided an expiring attachment URL for "
-            f"{joined}. If images disappear later, re-upload using prefix command "
-            "`Cor;editmemberimages <member_id> [subsystem_id]` with image attachment(s)."
-        )
-    await interaction.response.send_message(msg)
+    await interaction.response.send_message(f"Updated profile/banner for **{member['name']}**.")
 
 # -----------------------------
 # List all members

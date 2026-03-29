@@ -1770,7 +1770,7 @@ async def random_prefix(ctx: commands.Context, pool: str = None, side_id: str = 
 async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, side_id: str = None, subsystem_id: str = None):
     """Edit a member's profile picture or banner."""
     if not member_id:
-        await ctx.send("Usage: Cor;editmemberimages <member_id> [side_id] [subsystem_id] (attach 1-2 image files)")
+        await ctx.send("Usage: Cor;editmemberimages <member_id> [side_id] [subsystem_id] (attach image files, or paste URL in message)")
         return
 
     user_id = ctx.author.id
@@ -1785,41 +1785,38 @@ async def editmemberimages_prefix(ctx: commands.Context, member_id: str = None, 
         return
 
     attachments = list(ctx.message.attachments or [])
-    if not attachments:
-        await ctx.send("Attach 1 image (profile or banner) or 2 images (profile first, banner second).")
+    # Check for URLs in message content after the command args
+    content_parts = ctx.message.content.split()
+    # Find URLs in the message (after command + args)
+    url_args = [p for p in content_parts if p.startswith("http://") or p.startswith("https://")]
+
+    if not attachments and not url_args:
+        await ctx.send("Attach 1 image (profile or banner) or 2 images (profile first, banner second). You can also paste a direct image URL.")
         return
 
     member = members_dict[member_id]
     updated = []
 
-    if len(attachments) >= 2:
+    if url_args:
+        # URL mode: first URL = profile pic, second URL = banner
+        member["profile_pic"] = url_args[0].strip()
+        updated.append("profile_pic")
+        if len(url_args) >= 2:
+            member["banner"] = url_args[1].strip()
+            updated.append("banner")
+    elif len(attachments) >= 2:
         member["profile_pic"] = attachments[0].url
         member["banner"] = attachments[1].url
         updated = ["profile_pic", "banner"]
-        await ctx.send(
-            ":warning: **Discord image URLs expire after 24 hours.**\n"
-            "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
-            "See: https://imgur.com/upload"
-        )
     else:
         single = attachments[0]
         filename = (single.filename or "").lower()
         if "banner" in filename:
             member["banner"] = single.url
             updated = ["banner"]
-            await ctx.send(
-                ":warning: **Discord image URLs expire after 24 hours.**\n"
-                "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
-                "See: https://imgur.com/upload"
-            )
         else:
             member["profile_pic"] = single.url
             updated = ["profile_pic"]
-            await ctx.send(
-                ":warning: **Discord image URLs expire after 24 hours.**\n"
-                "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
-                "See: https://imgur.com/upload"
-            )
 
     save_systems()
     await ctx.send(
@@ -2724,7 +2721,9 @@ async def editsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = No
             "• `Cor;esc <id> description <text>` - Set description\n"
             "• `Cor;esc <id> color #HEX` - Set color\n"
             "• `Cor;esc <id> set_pic` (with image attached) - Set profile picture\n"
+            "• `Cor;esc <id> set_pic_url <url>` - Set profile picture from URL\n"
             "• `Cor;esc <id> set_banner` (with image attached) - Set banner\n"
+            "• `Cor;esc <id> set_banner_url <url>` - Set banner from URL\n"
             "• `Cor;esc <id> clear_pic` - Clear profile picture\n"
             "• `Cor;esc <id> clear_banner` - Clear banner"
         )
@@ -2756,11 +2755,6 @@ async def editsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = No
                     subsystem_data["profile_pic"] = ctx.message.attachments[0].url
                     save_systems()
                     container = build_subsystem_card_cv2(subsystem_data, subsystem_id, system)
-                    await ctx.send(
-                        ":warning: **Discord image URLs expire after 24 hours.**\n"
-                        "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
-                        "See: https://imgur.com/upload"
-                    )
                     await ctx.send("Profile picture updated.", view=cv2_view(container))
                     return
                 except Exception as e:
@@ -2772,11 +2766,6 @@ async def editsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = No
                     subsystem_data["banner"] = ctx.message.attachments[0].url
                     save_systems()
                     container = build_subsystem_card_cv2(subsystem_data, subsystem_id, system)
-                    await ctx.send(
-                        ":warning: **Discord image URLs expire after 24 hours.**\n"
-                        "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
-                        "See: https://imgur.com/upload"
-                    )
                     await ctx.send("Banner updated.", view=cv2_view(container))
                     return
                 except Exception as e:
@@ -2798,6 +2787,10 @@ async def editsubsystemcard_prefix(ctx: commands.Context, subsystem_id: str = No
                 except ValueError as e:
                     await ctx.send(str(e))
                     return
+            elif arg_type == "set_pic_url" and arg_value:
+                subsystem_data["profile_pic"] = arg_value.strip()
+            elif arg_type == "set_banner_url" and arg_value:
+                subsystem_data["banner"] = arg_value.strip()
             elif arg_type == "clear_pic":
                 subsystem_data.pop("profile_pic", None)
             elif arg_type == "clear_banner":
@@ -3112,17 +3105,11 @@ async def serveridentity_prefix(ctx: commands.Context, field: str = None, *, val
         server_app["system_tag"] = value.strip() or None
         msg = f"Server system tag set to **{value.strip()}**."
     elif f == "icon":
-        attachment = ctx.message.attachments[0] if ctx.message.attachments else None
-        if attachment:
-            server_app["profile_pic"] = attachment.url
-            await ctx.send(
-                ":warning: **Discord image URLs expire after 24 hours.**\n"
-                "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
-                "See: https://imgur.com/upload"
-            )
-            msg = "Server icon updated from attachment."
-        elif value and value.strip().startswith("http"):
+        if value and value.strip().startswith("http"):
             server_app["profile_pic"] = value.strip()
+            msg = "Server icon updated."
+        elif ctx.message.attachments:
+            server_app["profile_pic"] = ctx.message.attachments[0].url
             msg = "Server icon updated."
         else:
             await ctx.send("Provide an image attachment or a URL: `Cor;serveridentity icon <url>`")
@@ -3260,17 +3247,11 @@ async def servermemberidentity_prefix(
         override["system_tag"] = value.strip() or None
         msg = f"Member server tag suffix set to **{value.strip()}**."
     elif f == "icon":
-        attachment = ctx.message.attachments[0] if ctx.message.attachments else None
-        if attachment:
-            override["profile_pic"] = attachment.url
-            await ctx.send(
-                ":warning: **Discord image URLs expire after 24 hours.**\n"
-                "For a permanent image, upload to Imgur or another image host and paste the direct link.\n"
-                "See: https://imgur.com/upload"
-            )
-            msg = "Member server icon updated from attachment."
-        elif value and value.strip().startswith("http"):
+        if value and value.strip().startswith("http"):
             override["profile_pic"] = value.strip()
+            msg = "Member server icon updated."
+        elif ctx.message.attachments:
+            override["profile_pic"] = ctx.message.attachments[0].url
             msg = "Member server icon updated."
         else:
             await ctx.send("Provide an image attachment or URL: `Cor;servermemberidentity <member_id> icon [subsystem_id] <url>`")
