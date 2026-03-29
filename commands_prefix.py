@@ -4435,6 +4435,44 @@ async def denyfriend_prefix(ctx: commands.Context, user_id: str):
     await ctx.send(f"Friend request from <@{parsed}> denied.")
 
 
+# Cor;synccommands — Force sync all slash commands globally (admin only)
+@bot.command(name="synccommands")
+async def synccommands_prefix(ctx):
+    is_bot_admin = is_bot_moderator_user(ctx.author.id)
+
+    is_guild_admin = bool(
+        ctx.guild is not None
+        and isinstance(ctx.author, discord.Member)
+        and ctx.author.guild_permissions.administrator
+    )
+
+    if not is_bot_admin and not is_guild_admin:
+        location = "server" if ctx.guild is not None else "DM"
+        await ctx.send(
+            "You do not have permission to use this command. "
+            f"Detected: user_id={ctx.author.id}, context={location}, "
+            f"bot_admin={is_bot_admin}, guild_admin={is_guild_admin}. "
+            "Use this command in a server as a Discord administrator, "
+            "or add your user ID to CORTEX_ADMIN_USER_IDS and redeploy."
+        )
+        return
+
+    removed_guild_scoped = 0
+    if ctx.guild is not None:
+        existing_guild_commands = tree.get_commands(guild=ctx.guild)
+        removed_guild_scoped = len(existing_guild_commands)
+        tree.clear_commands(guild=ctx.guild)
+        await tree.sync(guild=ctx.guild)
+
+    global_synced = await tree.sync()
+
+    await ctx.send(
+        f"Commands synced globally: {len(global_synced)}. "
+        f"Removed {removed_guild_scoped} guild-scoped command copies in this server. "
+        "Global updates may take time to propagate."
+    )
+
+
 def setup_prefix_commands():
     """Called from cortex.py to confirm prefix commands are loaded."""
     pass
