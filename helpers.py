@@ -1554,6 +1554,8 @@ def build_subsystem_card_cv2(subsystem_data, subsystem_id, system):
 
     subsystem_name = subsystem_data.get("subsystem_name", "Unnamed Subsystem")
     desc = fit_box_drawing(subsystem_data.get("description", "")) or "No description set."
+    if len(desc) > 1900:
+        desc = desc[:1897] + "..."
     profile_pic = subsystem_data.get("profile_pic")
 
     header = f"### {subsystem_name} - Subsystem Card"
@@ -1606,8 +1608,8 @@ def build_system_card_cv2(system):
     ))
 
     desc_raw = fit_box_drawing(profile.get("description") or "") or "No description set."
-    if len(desc_raw) > 4000:
-        desc_raw = desc_raw[:3997] + "..."
+    if len(desc_raw) > 1900:
+        desc_raw = desc_raw[:1897] + "..."
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
     container.add_item(discord.ui.TextDisplay(desc_raw))
 
