@@ -1506,17 +1506,9 @@ def build_member_profile_cv2(member, system=None, side_id=None, subsystem_id=Non
     accent = _cv2_color(member.get("color"))
     container = discord.ui.Container(accent_colour=accent)
 
-    # Only show member name, member ID, and scope (side system/subsystem)
     member_name = member["name"]
-    header_text = f"### {member_name}"
-    container.add_item(discord.ui.TextDisplay(header_text))
-
-    # Scope label
     scope_label = get_scope_label(side_id, subsystem_id)
-    container.add_item(discord.ui.TextDisplay(f"**Scope:** {scope_label}"))
-
-    # Member ID
-    container.add_item(discord.ui.TextDisplay(f"**Member ID:** {member['id']}"))
+    container.add_item(discord.ui.TextDisplay(f"**{member_name}** · {scope_label}"))
 
     return container
 
