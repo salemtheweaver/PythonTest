@@ -5718,6 +5718,7 @@ async def refresh(interaction: discord.Interaction):
 # Sync
 # -----------------------------
 # /synccommands — Force sync all slash commands globally (admin only)
+@tree.command(name="synccommands", description="Force-sync all slash commands globally (admin only)")
 async def synccommands(interaction: discord.Interaction):
     """Force-sync all slash commands globally."""
     await interaction.response.defer(ephemeral=True)
